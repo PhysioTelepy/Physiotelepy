@@ -11,8 +11,6 @@ NuitrackGLSample::NuitrackGLSample() :
 	_textureBuffer(0),
 	_width(640),
 	_height(480),
-	_viewMode(RGB_MODE),
-	_modesNumber(2),
 	_isInitialized(false)
 {}
 
@@ -44,35 +42,21 @@ void NuitrackGLSample::init(const std::string& config)
 	// Create all required Nuitrack modules
 
 	_depthSensor = DepthSensor::create();
-	// Bind to event new frame
-	_depthSensor->connectOnNewFrame(std::bind(&NuitrackGLSample::onNewDepthFrame, this, std::placeholders::_1));
-
 	_colorSensor = ColorSensor::create();
-	// Bind to event new frame
 	_colorSensor->connectOnNewFrame(std::bind(&NuitrackGLSample::onNewRGBFrame, this, std::placeholders::_1));
 
-	_outputMode = _depthSensor->getOutputMode();
-	OutputMode colorOutputMode = _colorSensor->getOutputMode();
-	if (colorOutputMode.xres > _outputMode.xres)
-		_outputMode.xres = colorOutputMode.xres;
-	if (colorOutputMode.yres > _outputMode.yres)
-		_outputMode.yres = colorOutputMode.yres;
-
+	_outputMode = _colorSensor->getOutputMode();
 	_width = _outputMode.xres;
 	_height = _outputMode.yres;
 
 	_userTracker = UserTracker::create();
-	// Binds to user tracker events
-	_userTracker->connectOnUpdate(std::bind(&NuitrackGLSample::onUserUpdateCallback, this, std::placeholders::_1));
 	_userTracker->connectOnNewUser(std::bind(&NuitrackGLSample::onNewUserCallback, this, std::placeholders::_1));
 	_userTracker->connectOnLostUser(std::bind(&NuitrackGLSample::onLostUserCallback, this, std::placeholders::_1));
 
 	_skeletonTracker = SkeletonTracker::create();
-	// Bind to event update skeleton tracker
 	_skeletonTracker->connectOnUpdate(std::bind(&NuitrackGLSample::onSkeletonUpdate, this, std::placeholders::_1));
 
-	_onIssuesUpdateHandler = Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGLSample::onIssuesUpdate,
-	                                                                  this, std::placeholders::_1));
+	_onIssuesUpdateHandler = Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGLSample::onIssuesUpdate, this, std::placeholders::_1));
 }
 
 bool NuitrackGLSample::update()
@@ -143,53 +127,9 @@ void NuitrackGLSample::release()
 	}
 }
 
-// Copy depth frame data, received from Nuitrack, to texture to visualize
-void NuitrackGLSample::onNewDepthFrame(DepthFrame::Ptr frame)
-{
-	if(_viewMode != DEPTH_SEGMENT_MODE)
-		return;
-
-	uint8_t* texturePtr = _textureBuffer;
-	const uint16_t* depthPtr = frame->getData();
-	
-	float wStep = (float)_width / frame->getCols();
-	float hStep = (float)_height / frame->getRows();
-	
-	float nextVerticalBorder = hStep;
-	
-	for (size_t i = 0; i < _height; ++i)
-	{
-		if (i == (int)nextVerticalBorder)
-		{
-			nextVerticalBorder += hStep;
-			depthPtr += frame->getCols();
-		}
-		
-		int col = 0;
-		float nextHorizontalBorder = wStep;
-		uint16_t depthValue = *depthPtr >> 5;
-		
-		for (size_t j = 0; j < _width; ++j, texturePtr += 3)
-		{
-			if (j == (int)nextHorizontalBorder)
-			{
-				++col;
-				nextHorizontalBorder += wStep;
-				depthValue = *(depthPtr + col) >> 5;
-			}
-			
-			texturePtr[0] = depthValue;
-			texturePtr[1] = depthValue;
-			texturePtr[2] = depthValue;
-		}
-	}
-}
-
 // Copy color frame data, received from Nuitrack, to texture to visualize
 void NuitrackGLSample::onNewRGBFrame(RGBFrame::Ptr frame)
 {
-	if(_viewMode != RGB_MODE)
-		return;
 
 	uint8_t* texturePtr = _textureBuffer;
 	const tdv::nuitrack::Color3* colorPtr = frame->getData();
@@ -221,78 +161,6 @@ void NuitrackGLSample::onNewRGBFrame(RGBFrame::Ptr frame)
 			texturePtr[0] = (colorPtr + col)->red;
 			texturePtr[1] = (colorPtr + col)->green;
 			texturePtr[2] = (colorPtr + col)->blue;
-		}
-	}
-}
-// Colorize user segments using Nuitrack User Tracker data
-void NuitrackGLSample::onUserUpdateCallback(UserFrame::Ptr frame)
-{
-	if(_viewMode != DEPTH_SEGMENT_MODE)
-		return;
-
-	const int MAX_LABELS = 8;
-	static uint8_t colors[MAX_LABELS][3] =
-	{
-	    {0, 0, 0},
-	    {0, 255, 0},
-	    {0, 0, 255},
-	    {255, 255, 0},
-	    
-	    {0, 255, 255},
-	    {255, 0, 255},
-	    {127, 255, 0},
-	    {255, 255, 255}
-	};
-	
-	std::vector<uint8_t> labelIssueState(MAX_LABELS, 0);
-	for (uint16_t label = 0; label < MAX_LABELS; ++label)
-	{
-		labelIssueState[label] = 0;
-		if (_issuesData)
-		{
-			FrameBorderIssue::Ptr frameBorderIssue = _issuesData->getUserIssue<FrameBorderIssue>(label);
-			labelIssueState[label] = (frameBorderIssue != 0);
-		}
-	}
-	
-	uint8_t* texturePtr = _textureBuffer;
-	const uint16_t* labelPtr = frame->getData();
-	
-	float wStep = (float)_width / frame->getCols();
-	float hStep = (float)_height / frame->getRows();
-	
-	float nextVerticalBorder = hStep;
-	
-	for (size_t i = 0; i < _height; ++i)
-	{
-		if (i == (int)nextVerticalBorder)
-		{
-			nextVerticalBorder += hStep;
-			labelPtr += frame->getCols();
-		}
-		
-		int col = 0;
-		float nextHorizontalBorder = wStep;
-		uint16_t label = *labelPtr;
-		
-		for (size_t j = 0; j < _width; ++j, texturePtr += 3)
-		{
-			if (j == (int)nextHorizontalBorder)
-			{
-				++col;
-				nextHorizontalBorder += wStep;
-				label = *(labelPtr + col);
-			}
-			
-			if (!label)
-				continue;
-			
-			for (int i = 0; i < 3; ++i)
-			{
-				texturePtr[i] = colors[label & 7][i];
-				if (labelIssueState[label])
-					texturePtr[i] /= 2;
-			}
 		}
 	}
 }
@@ -406,7 +274,7 @@ void NuitrackGLSample::renderLines()
 	
 	glEnableClientState(GL_VERTEX_ARRAY);
 	
-	glColor4f(1, 1, 1, 1);
+	glColor4f(1, 0, 0, 1);
 	
 	glLineWidth(6);
 	

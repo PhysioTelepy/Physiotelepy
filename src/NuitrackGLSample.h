@@ -39,11 +39,6 @@ public:
 	// Release all sample resources
 	void release();
 
-	void nextViewMode()
-	{
-		_viewMode = (ViewMode)(((uint32_t)_viewMode + 1) % _modesNumber);
-	}
-
 	tdv::nuitrack::OutputMode getOutputMode() const
 	{
 		return _outputMode;
@@ -72,16 +67,12 @@ private:
 	tdv::nuitrack::IssuesData::Ptr _issuesData;
 	uint64_t _onIssuesUpdateHandler;
 	
-	ViewMode _viewMode;
-	uint32_t _modesNumber;
 	bool _isInitialized;
 
 	/**
 	 * Nuitrack callbacks
 	 */
-	void onNewDepthFrame(tdv::nuitrack::DepthFrame::Ptr frame);
 	void onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame);
-	void onUserUpdateCallback(tdv::nuitrack::UserFrame::Ptr frame);
 	void onLostUserCallback(int id);
 	void onNewUserCallback(int id);
 	void onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons);
