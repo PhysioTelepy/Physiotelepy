@@ -1,14 +1,12 @@
 #ifndef NUITRACKGLSAMPLE_H_
 #define NUITRACKGLSAMPLE_H_
 
+#include <glad/glad.h>
 #include <nuitrack/Nuitrack.h>
 
 #ifdef _WIN32
 #include <Windows.h>
 #endif
-
-#include "GL/gl.h"
-
 #include <string>
 
 

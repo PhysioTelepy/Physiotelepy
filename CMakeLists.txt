@@ -6,8 +6,8 @@ project(${PROJECT_NAME})
 add_definitions(-std=c++11 -D_GLIBCXX_USE_CXX11_ABI=0)
 
 set(NUITRACK_INCLUDE_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/Nuitrack/include ${CMAKE_CURRENT_LIST_DIR}/Dependencies/Nuitrack/include/middleware)
-set(GLEW_INCLUDE_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/GLEW/include)
 set(GLFW_INCLUDE_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/GLFW/include)
+set(GLAD_INCLUDE_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/Glad/include)
 
 if(UNIX)
 	set(OPENGL_LIBS glut GL)
@@ -22,29 +22,44 @@ elseif(WIN32)
 	ELSEIF(CMAKE_SIZEOF_VOID_P EQUAL 8)
 		set(PLATFORM_DIR win64)
 	ENDIF()
-	set(OPENGL_LIBS glfw3 opengl32 User32 Gdi32 Shell32 glew32s)
+	set(OPENGL_LIBS glfw3 opengl32 User32 Gdi32 Shell32)
 endif()
 
-set(NUITRACK_LIBRARY_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/Nuitrack/lib/${PLATFORM_DIR})
-set(GLEW_LIBRARY_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/GLEW/lib/${PLATFORM_DIR}) 
+set(NUITRACK_LIBRARY_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/Nuitrack/lib/${PLATFORM_DIR}) 
 set(GLFW_LIBRARY_PATH ${CMAKE_CURRENT_LIST_DIR}/Dependencies/GLFW/lib-vc2019/${PLATFORM_DIR})  
 
 include_directories(
-	.
-	${NUITRACK_INCLUDE_PATH}
-	${GLEW_INCLUDE_PATH}
-	${GLFW_INCLUDE_PATH}
+    .
+    ${NUITRACK_INCLUDE_PATH}
+    ${GLFW_INCLUDE_PATH}
+    ${GLAD_INCLUDE_PATH}
 )
 
 link_directories(
-	${NUITRACK_LIBRARY_PATH}
-	${GLEW_LIBRARY_PATH}
-	${GLFW_LIBRARY_PATH}
+    ${NUITRACK_LIBRARY_PATH}
+    ${GLFW_LIBRARY_PATH}
 )
 
 set(SOURCES
     src/NuitrackGLSample.cpp
-    src/main.cpp)
+    src/Application.cpp
+    src/NuitrackGLSample.h
+    src/imgui/imconfig.h
+    src/imgui/imgui.cpp
+    src/imgui/imgui.h
+    src/imgui/imgui_demo.cpp
+    src/imgui/imgui_draw.cpp
+    src/imgui/imgui_internal.h
+    src/imgui/imgui_widgets.cpp
+    src/imgui/imstb_rectpack.h
+    src/imgui/imstb_textedit.h
+    src/imgui/imstb_truetype.h
+    src/imgui/imgui_impl_opengl3.cpp
+    src/imgui/imgui_impl_opengl3.h
+    src/imgui/imgui_impl_glfw.cpp
+    src/imgui/imgui_impl_glfw.h
+    src/glad/glad.c
+)
     
 add_executable(${PROJECT_NAME} ${SOURCES})
 
