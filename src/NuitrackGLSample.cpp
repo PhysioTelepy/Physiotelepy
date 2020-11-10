@@ -1,10 +1,9 @@
 #include "NuitrackGLSample.h"
 
-#include <cstdlib>
-#include <cstring>
+#include <string>
 #include <iostream>
+#include "UserInteraction.h"
 
-using namespace tdv::nuitrack;
 
 NuitrackGLSample::NuitrackGLSample() :
 	_textureID(0),
@@ -18,11 +17,22 @@ NuitrackGLSample::~NuitrackGLSample()
 {
 	try
 	{
-		Nuitrack::release();
+		tdv::nuitrack::Nuitrack::release();
 	}
-	catch (const Exception& e)
+	catch (const tdv::nuitrack::Exception& e)
 	{
 		// Do nothing
+	}
+}
+
+std::string toString(tdv::nuitrack::device::ActivationStatus status)
+{
+	switch (status)
+	{
+	case tdv::nuitrack::device::ActivationStatus::NONE: return "None";
+	case tdv::nuitrack::device::ActivationStatus::TRIAL: return "Trial";
+	case tdv::nuitrack::device::ActivationStatus::PRO: return "Pro";
+	default: return "Unknown type";
 	}
 }
 
@@ -31,9 +41,43 @@ void NuitrackGLSample::init(const std::string& config)
 	// Initialize Nuitrack first, then create Nuitrack modules
 	try
 	{
-		Nuitrack::init(config);
+		tdv::nuitrack::Nuitrack::init(config);
+
+		std::vector<tdv::nuitrack::device::NuitrackDevice::Ptr> devices = tdv::nuitrack::Nuitrack::getDeviceList();
+
+		if (devices.empty())
+			throw tdv::nuitrack::Exception("No devices found.");
+
+		std::cout << std::endl << "Available devices:" << std::endl;
+		for (int i = 0; i < devices.size(); i++)
+		{
+			printf("    [%d] %s (%s), License: %s\n",
+				i,
+				devices[i]->getInfo(tdv::nuitrack::device::DeviceInfoType::SERIAL_NUMBER).c_str(),
+				devices[i]->getInfo(tdv::nuitrack::device::DeviceInfoType::DEVICE_NAME).c_str(),
+				toString(devices[i]->getActivationStatus()).c_str());
+		}
+
+		int devIndex;
+		std::cout << std::endl << "Select the device number" << std::endl;
+		std::cin >> devIndex;
+
+		if (devIndex < 0 || devIndex >= devices.size())
+			throw tdv::nuitrack::Exception("Invalid device index.");
+		const auto& device = devices[devIndex];
+
+		bool isActivated = device->getActivationStatus() != tdv::nuitrack::device::ActivationStatus::NONE;
+
+		if (isActivated)
+			isActivated = !UserInteraction::confirm("The device is already activated! Do you want to reactivate it?");
+
+		if (!isActivated)
+		{
+			std::string activationKey = "license:19372:Qep454hfDLfyNCYh";
+			device->activate(activationKey);
+		}
 	}
-	catch (const Exception& e)
+	catch (const tdv::nuitrack::Exception& e)
 	{
 		std::cerr << "Can not initialize Nuitrack (ExceptionType: " << e.type() << ")" << std::endl;
 		exit(EXIT_FAILURE);
@@ -41,22 +85,22 @@ void NuitrackGLSample::init(const std::string& config)
 	
 	// Create all required Nuitrack modules
 
-	_depthSensor = DepthSensor::create();
-	_colorSensor = ColorSensor::create();
+	_depthSensor = tdv::nuitrack::DepthSensor::create();
+	_colorSensor = tdv::nuitrack::ColorSensor::create();
 	_colorSensor->connectOnNewFrame(std::bind(&NuitrackGLSample::onNewRGBFrame, this, std::placeholders::_1));
 
 	_outputMode = _colorSensor->getOutputMode();
 	_width = _outputMode.xres;
 	_height = _outputMode.yres;
 
-	_userTracker = UserTracker::create();
+	_userTracker = tdv::nuitrack::UserTracker::create();
 	_userTracker->connectOnNewUser(std::bind(&NuitrackGLSample::onNewUserCallback, this, std::placeholders::_1));
 	_userTracker->connectOnLostUser(std::bind(&NuitrackGLSample::onLostUserCallback, this, std::placeholders::_1));
 
-	_skeletonTracker = SkeletonTracker::create();
+	_skeletonTracker = tdv::nuitrack::SkeletonTracker::create();
 	_skeletonTracker->connectOnUpdate(std::bind(&NuitrackGLSample::onSkeletonUpdate, this, std::placeholders::_1));
 
-	_onIssuesUpdateHandler = Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGLSample::onIssuesUpdate, this, std::placeholders::_1));
+	_onIssuesUpdateHandler = tdv::nuitrack::Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGLSample::onIssuesUpdate, this, std::placeholders::_1));
 }
 
 bool NuitrackGLSample::update()
@@ -69,9 +113,9 @@ bool NuitrackGLSample::update()
 		// When Nuitrack modules are created, we need to call Nuitrack::run() to start processing all modules
 		try
 		{
-			Nuitrack::run();
+			tdv::nuitrack::Nuitrack::run();
 		}
-		catch (const Exception& e)
+		catch (const tdv::nuitrack::Exception& e)
 		{
 			std::cerr << "Can not start Nuitrack (ExceptionType: " << e.type() << ")" << std::endl;
 			release();
@@ -82,18 +126,18 @@ bool NuitrackGLSample::update()
 	try
 	{
 		// Wait and update Nuitrack data
-		Nuitrack::waitUpdate(_skeletonTracker);
+		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
 		
 		renderTexture();
 		renderLines();
 	}
-	catch (const LicenseNotAcquiredException& e)
+	catch (const tdv::nuitrack::LicenseNotAcquiredException& e)
 	{
 		// Update failed, negative result
 		std::cerr << "LicenseNotAcquired exception (ExceptionType: " << e.type() << ")" << std::endl;
 		return false;
 	}
-	catch (const Exception& e)
+	catch (const tdv::nuitrack::Exception& e)
 	{
 		// Update failed, negative result
 		std::cerr << "Nuitrack update failed (ExceptionType: " << e.type() << ")" << std::endl;
@@ -106,14 +150,14 @@ bool NuitrackGLSample::update()
 void NuitrackGLSample::release()
 {
 	if (_onIssuesUpdateHandler)
-		Nuitrack::disconnectOnIssuesUpdate(_onIssuesUpdateHandler);
+		tdv::nuitrack::Nuitrack::disconnectOnIssuesUpdate(_onIssuesUpdateHandler);
 
 	// Release Nuitrack and remove all modules
 	try
 	{
-		Nuitrack::release();
+		tdv::nuitrack::Nuitrack::release();
 	}
-	catch (const Exception& e)
+	catch (const tdv::nuitrack::Exception& e)
 	{
 		std::cerr << "Nuitrack release failed (ExceptionType: " << e.type() << ")" << std::endl;
 	}
@@ -128,7 +172,7 @@ void NuitrackGLSample::release()
 }
 
 // Copy color frame data, received from Nuitrack, to texture to visualize
-void NuitrackGLSample::onNewRGBFrame(RGBFrame::Ptr frame)
+void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 {
 
 	uint8_t* texturePtr = _textureBuffer;
@@ -178,7 +222,7 @@ void NuitrackGLSample::onNewUserCallback(int id)
 }
 
 // Prepare visualization of skeletons, received from Nuitrack
-void NuitrackGLSample::onSkeletonUpdate(SkeletonData::Ptr userSkeletons)
+void NuitrackGLSample::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons)
 {
 	_lines.clear();
 	
@@ -189,13 +233,13 @@ void NuitrackGLSample::onSkeletonUpdate(SkeletonData::Ptr userSkeletons)
 	}
 }
 
-void NuitrackGLSample::onIssuesUpdate(IssuesData::Ptr issuesData)
+void NuitrackGLSample::onIssuesUpdate(tdv::nuitrack::IssuesData::Ptr issuesData)
 {
 	_issuesData = issuesData;
 }
 
 // Helper function to draw a skeleton bone
-void NuitrackGLSample::drawBone(const Joint& j1, const Joint& j2)
+void NuitrackGLSample::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2)
 {
 	// Prepare line data for confident enough bones only
 	if (j1.confidence > 0.15 && j2.confidence > 0.15)
@@ -208,27 +252,27 @@ void NuitrackGLSample::drawBone(const Joint& j1, const Joint& j2)
 }
 
 // Helper function to draw skeleton from Nuitrack data
-void NuitrackGLSample::drawSkeleton(const std::vector<Joint>& joints)
+void NuitrackGLSample::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 {
 	// We need to draw a bone for every pair of neighbour joints
-	drawBone(joints[JOINT_HEAD], joints[JOINT_NECK]);
-	drawBone(joints[JOINT_NECK], joints[JOINT_LEFT_COLLAR]);
-	drawBone(joints[JOINT_LEFT_COLLAR], joints[JOINT_TORSO]);
-	drawBone(joints[JOINT_LEFT_COLLAR], joints[JOINT_LEFT_SHOULDER]);
-	drawBone(joints[JOINT_LEFT_COLLAR], joints[JOINT_RIGHT_SHOULDER]);
-	drawBone(joints[JOINT_WAIST], joints[JOINT_LEFT_HIP]);
-	drawBone(joints[JOINT_WAIST], joints[JOINT_RIGHT_HIP]);
-	drawBone(joints[JOINT_TORSO], joints[JOINT_WAIST]);
-	drawBone(joints[JOINT_LEFT_SHOULDER], joints[JOINT_LEFT_ELBOW]);
-	drawBone(joints[JOINT_LEFT_ELBOW], joints[JOINT_LEFT_WRIST]);
-	drawBone(joints[JOINT_LEFT_WRIST], joints[JOINT_LEFT_HAND]);
-	drawBone(joints[JOINT_RIGHT_SHOULDER], joints[JOINT_RIGHT_ELBOW]);
-	drawBone(joints[JOINT_RIGHT_ELBOW], joints[JOINT_RIGHT_WRIST]);
-	drawBone(joints[JOINT_RIGHT_WRIST], joints[JOINT_RIGHT_HAND]);
-	drawBone(joints[JOINT_RIGHT_HIP], joints[JOINT_RIGHT_KNEE]);
-	drawBone(joints[JOINT_LEFT_HIP], joints[JOINT_LEFT_KNEE]);
-	drawBone(joints[JOINT_RIGHT_KNEE], joints[JOINT_RIGHT_ANKLE]);
-	drawBone(joints[JOINT_LEFT_KNEE], joints[JOINT_LEFT_ANKLE]);
+	drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]);
+	drawBone(joints[tdv::nuitrack::JOINT_NECK], joints[tdv::nuitrack::JOINT_LEFT_COLLAR]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_TORSO]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_LEFT_SHOULDER]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER]);
+	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_LEFT_HIP]);
+	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_RIGHT_HIP]);
+	drawBone(joints[tdv::nuitrack::JOINT_TORSO], joints[tdv::nuitrack::JOINT_WAIST]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER], joints[tdv::nuitrack::JOINT_LEFT_ELBOW]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_ELBOW], joints[tdv::nuitrack::JOINT_LEFT_WRIST]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_WRIST], joints[tdv::nuitrack::JOINT_LEFT_HAND]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER], joints[tdv::nuitrack::JOINT_RIGHT_ELBOW]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW], joints[tdv::nuitrack::JOINT_RIGHT_WRIST]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_WRIST], joints[tdv::nuitrack::JOINT_RIGHT_HAND]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_HIP], joints[tdv::nuitrack::JOINT_RIGHT_KNEE]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_HIP], joints[tdv::nuitrack::JOINT_LEFT_KNEE]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_KNEE], joints[tdv::nuitrack::JOINT_RIGHT_ANKLE]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]);
 }
 
 // Render prepared background texture

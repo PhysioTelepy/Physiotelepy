@@ -10,6 +10,9 @@
 
 #include <iostream>
 
+#include <direct.h>
+#define GetCurrentDir _getcwd
+
 
 NuitrackGLSample sample;
 
@@ -19,15 +22,19 @@ void showHelpInfo()
 		"Press Esc to close window." << std::endl;
 }
 
+std::string get_current_dir() {
+	char buff[FILENAME_MAX]; //create string buffer to hold path
+	GetCurrentDir(buff, FILENAME_MAX);
+	std::string current_working_dir(buff);
+	return current_working_dir;
+}
+
 int main(int argc, char* argv[])
 {
 	showHelpInfo();
 
 	// Prepare sample to work
-	if (argc < 2)
-		sample.init();
-	else
-		sample.init(argv[1]);
+	sample.init("../../nuitrack/data/nuitrack.config");
 
 	auto outputMode = sample.getOutputMode();
 
