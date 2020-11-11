@@ -1,4 +1,5 @@
-#include "NuitrackGLSample.h"
+//#include "NuitrackGLSample.h"
+/*
 
 #include <string>
 #include <iostream>
@@ -282,21 +283,20 @@ void NuitrackGLSample::renderTexture()
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	
 	glEnable(GL_TEXTURE_2D);
-	glColor4f(1, 1, 1, 1);
+	//glColor4f(1, 1, 1, 1);
 	
 	glBindTexture(GL_TEXTURE_2D, _textureID);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, _textureBuffer);
 	
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	//glEnableClientState(GL_VERTEX_ARRAY);
+	//lEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	
-	glVertexPointer(2, GL_FLOAT, 0, _vertexes);
-	glTexCoordPointer(2, GL_FLOAT, 0, _textureCoords);
+	//glVertexPointer(2, GL_FLOAT, 0, _vertexes);
+	//glTexCoordPointer(2, GL_FLOAT, 0, _textureCoords);
 	
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 	
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+	//glDisableClientState(GL_VERTEX_ARRAY);
 	
 	glDisable(GL_TEXTURE_2D);
 }
@@ -316,56 +316,56 @@ void NuitrackGLSample::renderLines()
 	if (_lines.empty())
 		return;
 	
-	glEnableClientState(GL_VERTEX_ARRAY);
+	//glEnableClientState(GL_VERTEX_ARRAY);
 	
-	glColor4f(1, 0, 0, 1);
+	//glColor4f(1, 0, 0, 1);
 	
 	glLineWidth(6);
 	
-	glVertexPointer(2, GL_FLOAT, 0, _lines.data());
+	//glVertexPointer(2, GL_FLOAT, 0, _lines.data());
 	glDrawArrays(GL_LINES, 0, _lines.size() / 2);
 	
 	glLineWidth(1);
 	
-	glEnable(GL_POINT_SMOOTH);
+	//glEnable(GL_POINT_SMOOTH);
 	glPointSize(16);
 	
-	glVertexPointer(2, GL_FLOAT, 0, _lines.data());
+	//glVertexPointer(2, GL_FLOAT, 0, _lines.data());
 	glDrawArrays(GL_POINTS, 0, _lines.size() / 2);
 	
 	if (!_leftHandPointers.empty())
 	{
-		glColor4f(1, 0, 0, 1);
+		//glColor4f(1, 0, 0, 1);
 		glPointSize(16);
-		glVertexPointer(2, GL_FLOAT, 0, _leftHandPointers.data());
+		//glVertexPointer(2, GL_FLOAT, 0, _leftHandPointers.data());
 		glDrawArrays(GL_POINTS, 0, 1);
 		if (_leftHandPointers.size() > 2)
 		{
 			glPointSize(24);
-			glVertexPointer(2, GL_FLOAT, 0, _leftHandPointers.data() + 2);
+			//glVertexPointer(2, GL_FLOAT, 0, _leftHandPointers.data() + 2);
 			glDrawArrays(GL_POINTS, 0, 1);
 		}
 	}
 	
 	if (!_rightHandPointers.empty())
 	{
-		glColor4f(0, 0, 1, 1);
+		//glColor4f(0, 0, 1, 1);
 		glPointSize(16);
-		glVertexPointer(2, GL_FLOAT, 0, _rightHandPointers.data());
+		//glVertexPointer(2, GL_FLOAT, 0, _rightHandPointers.data());
 		glDrawArrays(GL_POINTS, 0, 1);
 		if (_rightHandPointers.size() > 2)
 		{
 			glPointSize(24);
-			glVertexPointer(2, GL_FLOAT, 0, _rightHandPointers.data() + 2);
+			//glVertexPointer(2, GL_FLOAT, 0, _rightHandPointers.data() + 2);
 			glDrawArrays(GL_POINTS, 0, 1);
 		}
 	}
 	
-	glColor4f(1, 1, 1, 1);
+	//glColor4f(1, 1, 1, 1);
 	glPointSize(1);
-	glDisable(GL_POINT_SMOOTH);
+	//glDisable(GL_POINT_SMOOTH);
 	
-	glDisableClientState(GL_VERTEX_ARRAY);
+	//glDisableClientState(GL_VERTEX_ARRAY);
 }
 
 void NuitrackGLSample::initTexture(int width, int height)
@@ -408,3 +408,5 @@ void NuitrackGLSample::initTexture(int width, int height)
 		_vertexes[7] = _height;
 	}
 }
+
+*/

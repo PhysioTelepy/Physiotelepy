@@ -1,3 +1,4 @@
+/*
 #ifndef NUITRACKGLSAMPLE_H_
 #define NUITRACKGLSAMPLE_H_
 
@@ -70,6 +71,8 @@ private:
 	/**
 	 * Nuitrack callbacks
 	 */
+
+/*
 	void onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame);
 	void onLostUserCallback(int id);
 	void onNewUserCallback(int id);
@@ -79,6 +82,7 @@ private:
 	/**
 	 * Draw methods
 	 */
+/*
 	void drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints);
 	void drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
 	void renderTexture();

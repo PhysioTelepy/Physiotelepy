@@ -1,5 +1,5 @@
 
-#include "NuitrackGLSample.h"
+//#include "NuitrackGLSample.h"
 
 #include "glad/glad.h"
 #include "GLFW/glfw3.h"
@@ -14,7 +14,7 @@
 #define GetCurrentDir _getcwd
 
 
-NuitrackGLSample sample;
+//NuitrackGLSample sample;
 
 void showHelpInfo()
 {
@@ -27,10 +27,11 @@ std::string get_current_dir() {
 	GetCurrentDir(buff, FILENAME_MAX);
 	std::string current_working_dir(buff);
 	return current_working_dir;
-}
+} 
 
-int main(int argc, char* argv[])
+int main2(int argc, char* argv[])
 {
+	/*
 	showHelpInfo();
 
 	// Prepare sample to work
@@ -39,6 +40,7 @@ int main(int argc, char* argv[])
 	auto outputMode = sample.getOutputMode();
 
 	/* Initialize the library */
+	/*
 	if (!glfwInit())
 	{
 		return -1;
@@ -70,13 +72,13 @@ int main(int argc, char* argv[])
 	glDisable(GL_DEPTH_TEST);
 	glEnable(GL_TEXTURE_2D);
 
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_COLOR_ARRAY);
+	//glEnableClientState(GL_VERTEX_ARRAY);
+	//glDisableClientState(GL_COLOR_ARRAY);
 
-	glOrtho(0, outputMode.xres, outputMode.yres, 0, -1.0, 1.0);
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
+	//glOrtho(0, outputMode.xres, outputMode.yres, 0, -1.0, 1.0);
+	//glMatrixMode(GL_PROJECTION);
+	//glPushMatrix();
+	//glLoadIdentity();
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
@@ -127,6 +129,6 @@ int main(int argc, char* argv[])
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	glfwTerminate();
-
+	*/
 	return 0;
 }
