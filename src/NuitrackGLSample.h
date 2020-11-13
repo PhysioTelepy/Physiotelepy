@@ -46,6 +46,8 @@ private:
 	int _width, _height;
 	
 	// GL data
+	int shaderProgram;
+	unsigned int VBO, VAO, EBO;
 	GLuint _textureID;
 	uint8_t* _textureBuffer;
 	GLfloat _textureCoords[8];

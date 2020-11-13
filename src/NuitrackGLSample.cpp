@@ -36,6 +36,30 @@ std::string toString(tdv::nuitrack::device::ActivationStatus status)
 	}
 }
 
+/*
+* Shaders are written in GLSL. They are programs that run on the GPU.
+* They are responsible for converting raw data (vertices, indices and textures) into coloured pixels.
+* Read more about shaders and OpenGL pipeline at learnopengl.com
+*/
+const char* vertexShaderSource = "#version 330 core\n"
+"layout (location = 0) in vec3 aPos;\n"
+"layout (location = 1) in vec2 aTexCoord;\n"
+"out vec2 TexCoord;\n"
+"void main()\n"
+"{\n"
+"   gl_Position = vec4(aPos, 1.0);\n"
+"   TexCoord = aTexCoord;\n"
+"}\0";
+
+const char* fragmentShaderSource = "#version 330 core\n"
+"out vec4 FragColor;\n"
+"in vec2 TexCoord;\n"
+"uniform sampler2D ourTexture;\n"
+"void main()\n"
+"{\n"
+"   FragColor = texture(ourTexture, TexCoord);\n"
+"}\n\0";
+
 void NuitrackGLSample::init(const std::string& config)
 {
 	// Initialize Nuitrack first, then create Nuitrack modules
@@ -89,6 +113,7 @@ void NuitrackGLSample::init(const std::string& config)
 	
 	// Create all required Nuitrack modules
 
+	// colorsensor doesn not seem to work unless depth sensor is created
 	_depthSensor = tdv::nuitrack::DepthSensor::create();
 	_colorSensor = tdv::nuitrack::ColorSensor::create();
 	_colorSensor->connectOnNewFrame(std::bind(&NuitrackGLSample::onNewRGBFrame, this, std::placeholders::_1));
@@ -178,12 +203,16 @@ void NuitrackGLSample::release()
 // Copy color frame data, received from Nuitrack, to texture to visualize
 void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 {
-
-	uint8_t* texturePtr = _textureBuffer;
+	// Storing from end of the buffer to start because frame data is received from top to bottom
+	// OpenGl requires texture data from the bottom to top.
+	// Not sure about left to right yet (because we have a free way to mirror flip image using Nuitrack config
+	uint8_t* texturePtr = _textureBuffer + (3 * _width * _height) - 1;
 	const tdv::nuitrack::Color3* colorPtr = frame->getData();
 
 	float wStep = (float)_width / frame->getCols();
 	float hStep = (float)_height / frame->getRows();
+
+	std::cout << "Output : " << frame->getCols() << std::endl << "Output rows: " << frame->getRows() << std::endl;
 
 	float nextVerticalBorder = hStep;
 
@@ -198,7 +227,7 @@ void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 		int col = 0;
 		float nextHorizontalBorder = wStep;
 
-		for (size_t j = 0; j < _width; ++j, texturePtr += 3)
+		for (size_t j = 0; j < _width; ++j, texturePtr -= 3)
 		{
 			if (j == (int)nextHorizontalBorder)
 			{
@@ -206,9 +235,9 @@ void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 				nextHorizontalBorder += wStep;
 			}
 
-			texturePtr[0] = (colorPtr + col)->red;
-			texturePtr[1] = (colorPtr + col)->green;
-			texturePtr[2] = (colorPtr + col)->blue;
+			*(texturePtr - 2) = (colorPtr + col)->red;
+			*(texturePtr - 1) = (colorPtr + col)->green;
+			*(texturePtr - 0) = (colorPtr + col)->blue;
 		}
 	}
 }
@@ -282,27 +311,16 @@ void NuitrackGLSample::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joi
 // Render prepared background texture
 void NuitrackGLSample::renderTexture()
 {
-	glClearColor(1, 1, 1, 1);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
-	glEnable(GL_TEXTURE_2D);
-	glColor4f(1, 1, 1, 1);
+	glClearColor(1.0f, 0.5f, 0.3f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
 	
 	glBindTexture(GL_TEXTURE_2D, _textureID);
+
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, _textureBuffer);
-	
-	glEnableClientState(GL_VERTEX_ARRAY);
-	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	
-	glVertexPointer(2, GL_FLOAT, 0, _vertexes);
-	glTexCoordPointer(2, GL_FLOAT, 0, _textureCoords);
-	
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-	
-	glDisableClientState(GL_VERTEX_ARRAY);
-	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-	
-	glDisable(GL_TEXTURE_2D);
+
+	glBindVertexArray(VAO);
+	glUseProgram(shaderProgram);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 }
 
 int NuitrackGLSample::power2(int n)
@@ -374,41 +392,88 @@ void NuitrackGLSample::renderLines()
 
 void NuitrackGLSample::initTexture(int width, int height)
 {
-	glGenTextures(1, &_textureID);
-	
-	width = power2(width);
-	height = power2(height);
-	
+	int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
+	glCompileShader(vertexShader);
+	// check for shader compile errors
+	int success;
+	char infoLog[512];
+	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+	if (!success)
+	{
+		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+	}
+	// fragment shader
+	int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
+	glCompileShader(fragmentShader);
+	// check for shader compile errors
+	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+	if (!success)
+	{
+		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
+	}
+	// link shaders
+	shaderProgram = glCreateProgram();
+	glAttachShader(shaderProgram, vertexShader);
+	glAttachShader(shaderProgram, fragmentShader);
+	glLinkProgram(shaderProgram);
+	// check for linking errors
+	glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+	if (!success) {
+		glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
+		std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+	}
+	glDeleteShader(vertexShader);
+	glDeleteShader(fragmentShader);
+
+
+	// Set texture coordinates [0, 1] and vertexes position
+	float vertices[] = {
+		// positions         // texture coords
+		1.0f,  1.0f, 0.0f,   1.0f, 1.0f,   // top right
+		1.0f, -1.0f, 0.0f,   1.0f, 0.0f,   // bottom right
+		-1.0f, -1.0f, 0.0f,  0.0f, 0.0f,   // bottom left
+		-1.0f,  1.0f, 0.0f,  0.0f, 1.0f    // top left 
+	};
+
+	unsigned int indices[] = {
+		0, 1, 3, //first triangle
+		1, 2, 3  //second triangle
+	};
+
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+	glGenBuffers(1, &EBO);
+
+	glBindVertexArray(VAO);
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+	// position attribute
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+	// texture coord attribute
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+	glEnableVertexAttribArray(1);
+
 	if (_textureBuffer != 0)
 		delete[] _textureBuffer;
 	
 	_textureBuffer = new uint8_t[width * height * 3];
 	memset(_textureBuffer, 0, sizeof(uint8_t) * width * height * 3);
 	
+	glGenTextures(1, &_textureID);
 	glBindTexture(GL_TEXTURE_2D, _textureID);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
 	
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	
-	// Set texture coordinates [0, 1] and vertexes position
-	{
-		_textureCoords[0] = (float) _width / width;
-		_textureCoords[1] = (float) _height / height;
-		_textureCoords[2] = (float) _width / width;
-		_textureCoords[3] = 0.0;
-		_textureCoords[4] = 0.0;
-		_textureCoords[5] = 0.0;
-		_textureCoords[6] = 0.0;
-		_textureCoords[7] = (float) _height / height;
-		
-		_vertexes[0] = _width;
-		_vertexes[1] = _height;
-		_vertexes[2] = _width;
-		_vertexes[3] = 0.0;
-		_vertexes[4] = 0.0;
-		_vertexes[5] = 0.0;
-		_vertexes[6] = 0.0;
-		_vertexes[7] = _height;
-	}
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);	
 }
