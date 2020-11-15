@@ -6,12 +6,18 @@
 
 - Install cmake https://cmake.org/download/
 
-- Run CMake and set source code directory to "nuitrack_gl_sample" folder, build directory to "nuitrack_gl_sample/build"
+- Run CMake and set source code directory to the Physiotelepy root directory, build directory to "Physiotelepy/build"
 
 - Press Configure button, then select Visual Studio generator
 
 - Press Configure, then Generate
 
-- Open solution "nuitrack_gl_sample.sln" in Visual Studio and use its instruments to compile solution
+- Press Open Project so that it opens in Visual Studio
 
-- After building solution right click on "run_debug.ps1", then select "Run with PowerShell"
+- Open the drop down menu beside Local Windows Debugger and open "Physiotelepy Debug Properties"
+
+- Go to "Debugging" and in Environment set "PATH=C:\Users\sadat\Documents\School\fydp-coding-stuff\Physiotelepy\nuitrack\bin" or whatever the path to your bin is
+
+- Also make sure "Merge Environment" is set to Yes
+
+- Apply your settings and run the Local Windows Debugger

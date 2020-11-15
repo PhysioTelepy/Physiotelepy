@@ -70,11 +70,15 @@ void NuitrackGLSample::init(const std::string& config)
 
 		if (isActivated)
 			isActivated = !UserInteraction::confirm("The device is already activated! Do you want to reactivate it?");
+		else
+			std::cout << "device isnt activated............." << std::endl;
 
+		std::cout << "hello before activating..." << std::endl;
 		if (!isActivated)
 		{
 			std::string activationKey = "license:19372:Qep454hfDLfyNCYh";
 			device->activate(activationKey);
+			std::cout << "hello i activated" << std::endl;
 		}
 	}
 	catch (const tdv::nuitrack::Exception& e)
