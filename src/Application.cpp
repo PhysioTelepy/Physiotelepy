@@ -13,6 +13,14 @@
 #include <direct.h>
 #define GetCurrentDir _getcwd
 
+#include <string>
+#include <windows.h>
+
+std::string getexepath()
+{
+	char result[MAX_PATH];
+	return std::string(result, GetModuleFileName(NULL, result, MAX_PATH));
+}
 
 NuitrackGLSample sample;
 
@@ -33,10 +41,12 @@ int main(int argc, char* argv[])
 {
 	showHelpInfo();
 
-	// Prepare sample to work
-	sample.init("../../nuitrack/data/nuitrack.config");
+	std::cout << "yuh" + get_current_dir() << std::endl;
 
+	// Prepare sample to work
+	sample.init("../nuitrack/data/nuitrack.config");
 	auto outputMode = sample.getOutputMode();
+	
 
 	/* Initialize the library */
 	if (!glfwInit())
@@ -53,6 +63,7 @@ int main(int argc, char* argv[])
 	if (!window)
 	{
 		glfwTerminate();
+		std::cout << "window ptr broke" << std::endl;
 		return -1;
 	}
 
