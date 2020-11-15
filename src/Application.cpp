@@ -1,7 +1,5 @@
 
 #include "NuitrackGLSample.h"
-
-#include "glad/glad.h"
 #include "GLFW/glfw3.h"
 
 #include "imgui/imgui.h"
@@ -12,15 +10,6 @@
 
 #include <direct.h>
 #define GetCurrentDir _getcwd
-
-#include <string>
-#include <windows.h>
-
-std::string getexepath()
-{
-	char result[MAX_PATH];
-	return std::string(result, GetModuleFileName(NULL, result, MAX_PATH));
-}
 
 NuitrackGLSample sample;
 
@@ -48,35 +37,33 @@ int main(int argc, char* argv[])
 {
 	std::cout << get_current_dir() << std::endl;
 
-	std::cout << "yuh" + get_current_dir() << std::endl;
-
 	// Prepare sample to work
 	sample.init("../nuitrack/data/nuitrack.config");
+
 	auto outputMode = sample.getOutputMode();
-	
 
 	/* Initialize the library */
 	if (!glfwInit())
 	{
+		std::cout << "Failed to initialize GLAD" << std::endl;
 		return -1;
 	}
 
-	const char* glsl_version = "#version 460";
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+	const char* glsl_version = "#version 330";
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); //Todo: Set this to core and implement shaders at some point.
 
 	GLFWwindow* window = glfwCreateWindow(outputMode.xres, outputMode.yres, "Physiotelepy", NULL, NULL);
 	if (!window)
 	{
+		std::cout << "Failed to create GLFW window" << std::endl;
 		glfwTerminate();
-		std::cout << "window ptr broke" << std::endl;
 		return -1;
 	}
 
 	glfwMakeContextCurrent(window);
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
 		std::cout << "Failed to initialize GLAD" << std::endl;
@@ -93,6 +80,8 @@ int main(int argc, char* argv[])
 	ImGui_ImplOpenGL3_Init(glsl_version);
 
 	bool showDemoWindow = false;
+	float skeletonColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	float jointColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	// Start main loop
 	while (!glfwWindowShouldClose(window))
@@ -106,17 +95,19 @@ int main(int argc, char* argv[])
 
 		{
 			ImGui::Begin("Debug Window");
-			//ImGui::Checkbox("Demo window", &showDemoWindow);
 			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+			ImGui::ColorPicker3("Skeleton color picker", skeletonColor);
+			ImGui::ColorPicker3("Joint color picker", jointColor);
 			ImGui::End();
 		}
 
 		// Delegate this action to example's main class
-		bool update = sample.update();
+		bool update = sample.update(skeletonColor, jointColor);
 
 		if (!update)
 		{
 			// End the work if update failed
+			std::cout << "Sample failed to update, ending program" << std::endl;
 			sample.release();
 			glfwTerminate();
 			exit(EXIT_FAILURE);

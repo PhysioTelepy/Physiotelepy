@@ -1,7 +1,7 @@
 #ifndef NUITRACKGLSAMPLE_H_
 #define NUITRACKGLSAMPLE_H_
 
-#include <glad/glad.h>
+#include "opgl.h"
 #include <nuitrack/Nuitrack.h>
 
 #ifdef _WIN32
@@ -32,7 +32,7 @@ public:
 	
 	// Update the depth map, tracking and gesture recognition data,
 	// then redraw the view
-	bool update();
+	bool update(float* skeletonColor, float* jointColor);
 	
 	// Release all sample resources
 	void release();
@@ -44,10 +44,12 @@ public:
 
 private:
 	int _width, _height;
-	
 	// GL data
+	int skeletonColorUniformLocation = -1;
 	int shaderProgram;
-	unsigned int VBO, VAO, EBO;
+	int shaderProgram2;
+	unsigned int VBO, VAO, EBO; // For textures
+	unsigned int VBO2, VAO2; // For lines
 	GLuint _textureID;
 	uint8_t* _textureBuffer;
 	GLfloat _textureCoords[8];
@@ -84,10 +86,10 @@ private:
 	void drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints);
 	void drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
 	void renderTexture();
-	void renderLines();
+	void renderLines(float* skeletonColor, float* jointColor);
 	
-	int power2(int n);
 	void initTexture(int width, int height);
+	void initLines();
 };
 
 #endif /* NUITRACKGLSAMPLE_H_ */
