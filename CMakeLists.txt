@@ -46,6 +46,8 @@ set(SOURCES
     src/NuitrackGLSample.h
     src/UserInteraction.h
     src/UserInteraction.cpp
+    src/opgl.h
+    src/opgl.cpp
     src/imgui/imconfig.h
     src/imgui/imgui.cpp
     src/imgui/imgui.h
