@@ -49,7 +49,7 @@ const char* vertexShaderSource = "#version 330 core\n"
 "{\n"
 "   gl_Position = vec4(aPos, 1.0);\n"
 "   TexCoord = aTexCoord;\n"
-"}\0";
+"}\n\0";
 
 const char* fragmentShaderSource = "#version 330 core\n"
 "out vec4 FragColor;\n"
@@ -61,12 +61,13 @@ const char* fragmentShaderSource = "#version 330 core\n"
 "}\n\0";
 
 const char* vertexShaderSource2 = "#version 330 core\n"
+"uniform float pointSize;\n"
 "layout (location = 0) in vec2 aPos;\n"
 "void main()\n"
 "{\n"
 "   gl_Position = vec4(aPos, 1.0, 1.0);\n"
-"	gl_PointSize = 10.0;\n"
-"}\0";
+"	gl_PointSize = pointSize;\n"
+"}\n\0";
 
 const char* fragmentShaderSource2 = "#version 330 core\n"
 "out vec4 FragColor;\n"
@@ -106,19 +107,17 @@ void NuitrackGLSample::init(const std::string& config)
 			throw tdv::nuitrack::Exception("Invalid device index.");
 		const auto& device = devices[devIndex];
 
-		bool isActivated = device->getActivationStatus() != tdv::nuitrack::device::ActivationStatus::NONE;
+		bool isActivated = device->getActivationStatus() == tdv::nuitrack::device::ActivationStatus::PRO;
 
 		if (isActivated)
 			isActivated = !UserInteraction::confirm("The device is already activated! Do you want to reactivate it?");
 		else
 			std::cout << "device isnt activated............." << std::endl;
 
-		std::cout << "hello before activating..." << std::endl;
 		if (!isActivated)
 		{
 			std::string activationKey = "license:19372:Qep454hfDLfyNCYh";
 			device->activate(activationKey);
-			std::cout << "hello i activated" << std::endl;
 		}
 	}
 	catch (const tdv::nuitrack::Exception& e)
@@ -148,7 +147,7 @@ void NuitrackGLSample::init(const std::string& config)
 	_onIssuesUpdateHandler = tdv::nuitrack::Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGLSample::onIssuesUpdate, this, std::placeholders::_1));
 }
 
-bool NuitrackGLSample::update(float* skeletonColor, float* jointColor)
+bool NuitrackGLSample::update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth)
 {
 	if (!_isInitialized)
 	{
@@ -175,7 +174,7 @@ bool NuitrackGLSample::update(float* skeletonColor, float* jointColor)
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
 		
 		renderTexture();
-		renderLines(skeletonColor, jointColor);
+		renderLines(skeletonColor, jointColor, pointSize, lineWidth);
 	}
 	catch (const tdv::nuitrack::LicenseNotAcquiredException& e)
 	{
@@ -369,7 +368,7 @@ void NuitrackGLSample::renderTexture()
 }
 
 // Visualize bones, joints and hand positions
-void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor)
+void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth)
 {
 	if (_lines.empty())
 		return;
@@ -383,17 +382,28 @@ void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor)
 	
 	GLCall(glBindVertexArray(VAO2));
 	
+	
+	if (skeletonColorUniformLocation == -1) 
+	{
+		GLCall(skeletonColorUniformLocation = glGetUniformLocation(shaderProgram2, "color"));
+	}
 
-	if (skeletonColorUniformLocation == -1) {
-		skeletonColorUniformLocation = glGetUniformLocation(shaderProgram2, "color");
+	if (pointSizeUniformLocation == -1)
+	{
+		GLCall(pointSizeUniformLocation = glGetUniformLocation(shaderProgram2, "pointSize"));
 	}
 	GLCall(glUseProgram(shaderProgram2));
 
 	GLCall(glUniform4f(skeletonColorUniformLocation, skeletonColor[0], skeletonColor[1], skeletonColor[2], skeletonColor[3]));
+	GLCall(glEnable(GL_LINE_SMOOTH));
+	GLCall(glLineWidth(lineWidth));
 	GLCall(glDrawArrays(GL_LINES, 0, _lines.size() / 2));
+	GLCall(glLineWidth(1.0f));
+	GLCall(glDisable(GL_LINE_SMOOTH));
 
 	GLCall(glEnable(GL_PROGRAM_POINT_SIZE));
 	GLCall(glUniform4f(skeletonColorUniformLocation, jointColor[0], jointColor[1], jointColor[2], jointColor[3]));
+	GLCall(glUniform1f(pointSizeUniformLocation, pointSize));
 	GLCall(glDrawArrays(GL_POINTS, 0, _lines.size() / 2));
 	GLCall(glDisable(GL_PROGRAM_POINT_SIZE));
 	GLCall(glBindVertexArray(0));
@@ -401,8 +411,7 @@ void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor)
 
 void NuitrackGLSample::initLines()
 {
-
-	int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	GLCall(int vertexShader = glCreateShader(GL_VERTEX_SHADER));
 	GLCall(glShaderSource(vertexShader, 1, &vertexShaderSource2, NULL));
 	GLCall(glCompileShader(vertexShader));
 	// check for shader compile errors
@@ -415,7 +424,7 @@ void NuitrackGLSample::initLines()
 		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
 	}
 	// fragment shader
-	int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	GLCall(int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER));
 	GLCall(glShaderSource(fragmentShader, 1, &fragmentShaderSource2, NULL));
 	GLCall(glCompileShader(fragmentShader));
 	// check for shader compile errors
@@ -458,7 +467,7 @@ void NuitrackGLSample::initLines()
 
 void NuitrackGLSample::initTexture(int width, int height)
 {
-	int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	GLCall(int vertexShader = glCreateShader(GL_VERTEX_SHADER));
 	GLCall(glShaderSource(vertexShader, 1, &vertexShaderSource, NULL));
 	GLCall(glCompileShader(vertexShader));
 	// check for shader compile errors
@@ -471,7 +480,7 @@ void NuitrackGLSample::initTexture(int width, int height)
 		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
 	}
 	// fragment shader
-	int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	GLCall(int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER));
 	GLCall(glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL));
 	GLCall(glCompileShader(fragmentShader));
 	// check for shader compile errors
@@ -482,7 +491,7 @@ void NuitrackGLSample::initTexture(int width, int height)
 		std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
 	}
 	// link shaders
-	shaderProgram = glCreateProgram();
+	GLCall(shaderProgram = glCreateProgram());
 	GLCall(glAttachShader(shaderProgram, vertexShader));
 	GLCall(glAttachShader(shaderProgram, fragmentShader));
 	GLCall(glLinkProgram(shaderProgram));

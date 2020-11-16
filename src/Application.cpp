@@ -82,6 +82,8 @@ int main(int argc, char* argv[])
 	bool showDemoWindow = false;
 	float skeletonColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	float jointColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	float pointSize = 10.0f;
+	float lineWidth = 1.0f;
 
 	// Start main loop
 	while (!glfwWindowShouldClose(window))
@@ -96,13 +98,15 @@ int main(int argc, char* argv[])
 		{
 			ImGui::Begin("Debug Window");
 			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+			ImGui::SliderFloat("Joint size", &pointSize, 0.1f, 20.0f);
+			ImGui::SliderFloat("Line width", &lineWidth, 0.1f, 15.0f);
 			ImGui::ColorPicker3("Skeleton color picker", skeletonColor);
 			ImGui::ColorPicker3("Joint color picker", jointColor);
 			ImGui::End();
 		}
 
 		// Delegate this action to example's main class
-		bool update = sample.update(skeletonColor, jointColor);
+		bool update = sample.update(skeletonColor, jointColor, pointSize, lineWidth);
 
 		if (!update)
 		{

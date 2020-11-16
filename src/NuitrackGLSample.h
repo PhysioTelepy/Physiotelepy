@@ -32,7 +32,7 @@ public:
 	
 	// Update the depth map, tracking and gesture recognition data,
 	// then redraw the view
-	bool update(float* skeletonColor, float* jointColor);
+	bool update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth);
 	
 	// Release all sample resources
 	void release();
@@ -46,6 +46,7 @@ private:
 	int _width, _height;
 	// GL data
 	int skeletonColorUniformLocation = -1;
+	int pointSizeUniformLocation = -1;
 	int shaderProgram;
 	int shaderProgram2;
 	unsigned int VBO, VAO, EBO; // For textures
@@ -86,7 +87,7 @@ private:
 	void drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints);
 	void drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
 	void renderTexture();
-	void renderLines(float* skeletonColor, float* jointColor);
+	void renderLines(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth);
 	
 	void initTexture(int width, int height);
 	void initLines();
