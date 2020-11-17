@@ -278,8 +278,7 @@ void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 // Prepare visualization of skeletons, received from Nuitrack
 void NuitrackGLSample::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons)
 {
-	_lines.clear();
-
+	numLines = 0;
 	
 	auto skeletons = userSkeletons->getSkeletons();
 
@@ -290,6 +289,30 @@ void NuitrackGLSample::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSke
 	}
 }
 
+// Helper function to draw skeleton from Nuitrack data
+void NuitrackGLSample::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
+{
+
+	// We need to draw a bone for every pair of neighbour joints
+	drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]);
+	drawBone(joints[tdv::nuitrack::JOINT_NECK], joints[tdv::nuitrack::JOINT_LEFT_COLLAR]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_TORSO]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_LEFT_SHOULDER]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER]);
+	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_LEFT_HIP]);
+	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_RIGHT_HIP]);
+	drawBone(joints[tdv::nuitrack::JOINT_TORSO], joints[tdv::nuitrack::JOINT_WAIST]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER], joints[tdv::nuitrack::JOINT_LEFT_ELBOW]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_ELBOW], joints[tdv::nuitrack::JOINT_LEFT_WRIST]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_WRIST], joints[tdv::nuitrack::JOINT_LEFT_HAND]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER], joints[tdv::nuitrack::JOINT_RIGHT_ELBOW]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW], joints[tdv::nuitrack::JOINT_RIGHT_WRIST]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_WRIST], joints[tdv::nuitrack::JOINT_RIGHT_HAND]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_HIP], joints[tdv::nuitrack::JOINT_RIGHT_KNEE]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_HIP], joints[tdv::nuitrack::JOINT_LEFT_KNEE]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_KNEE], joints[tdv::nuitrack::JOINT_RIGHT_ANKLE]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]);
+}
 
 // Helper function to draw a skeleton bone
 void NuitrackGLSample::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2)
@@ -313,41 +336,13 @@ void NuitrackGLSample::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitr
 
 	if (j1.confidence > 0.15 && j2.confidence > 0.15)
 	{
-		_lines.push_back((-j1.proj.x * 2) + 1);
-		_lines.push_back((-j1.proj.y * 2) + 1);
-		_lines.push_back((-j2.proj.x * 2) + 1);
-		_lines.push_back((-j2.proj.y * 2) + 1);
+		_lines[numLines] = (-j1.proj.x * 2) + 1;
+		_lines[numLines+1] = (-j1.proj.y * 2) + 1;
+		_lines[numLines+2] = (-j2.proj.x * 2) + 1;
+		_lines[numLines+3] = (-j2.proj.y * 2) + 1;
+
+		numLines += 4;
 	}
-}
-
-// Helper function to draw skeleton from Nuitrack data
-void NuitrackGLSample::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
-{
-	//tdv::nuitrack::Joint headJoint = joints[tdv::nuitrack::JOINT_HEAD];
-	//tdv::nuitrack::Vector3 real = headJoint.real;
-	//tdv::nuitrack::Vector3 proj = headJoint.proj;
-	//std::cout << "Head joint real coordinates, x: " << real.x << " y: " << real.y << " z: " << real.z << std::endl;
-	//std::cout << "Head joint proj coordinates, x: " << proj.x << " y: " << proj.y << " z: " << real.z << std::endl;
-
-	// We need to draw a bone for every pair of neighbour joints
-	drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]);
-	drawBone(joints[tdv::nuitrack::JOINT_NECK], joints[tdv::nuitrack::JOINT_LEFT_COLLAR]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_TORSO]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_LEFT_SHOULDER]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER]);
-	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_LEFT_HIP]);
-	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_RIGHT_HIP]);
-	drawBone(joints[tdv::nuitrack::JOINT_TORSO], joints[tdv::nuitrack::JOINT_WAIST]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER], joints[tdv::nuitrack::JOINT_LEFT_ELBOW]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_ELBOW], joints[tdv::nuitrack::JOINT_LEFT_WRIST]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_WRIST], joints[tdv::nuitrack::JOINT_LEFT_HAND]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER], joints[tdv::nuitrack::JOINT_RIGHT_ELBOW]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW], joints[tdv::nuitrack::JOINT_RIGHT_WRIST]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_WRIST], joints[tdv::nuitrack::JOINT_RIGHT_HAND]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_HIP], joints[tdv::nuitrack::JOINT_RIGHT_KNEE]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_HIP], joints[tdv::nuitrack::JOINT_LEFT_KNEE]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_KNEE], joints[tdv::nuitrack::JOINT_RIGHT_ANKLE]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]);
 }
 
 // Render prepared background texture
@@ -357,7 +352,7 @@ void NuitrackGLSample::renderTexture()
 	GLCall(glClear(GL_COLOR_BUFFER_BIT));
 	
 	GLCall(glBindTexture(GL_TEXTURE_2D, _textureID));
-
+	// Todo: Look into using multiple texture buffers for performance
 	GLCall(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, _textureBuffer));
 
 	GLCall(glBindVertexArray(VAO));
@@ -370,14 +365,12 @@ void NuitrackGLSample::renderTexture()
 // Visualize bones, joints and hand positions
 void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth)
 {
-	if (_lines.empty())
+	if (numLines == 0)
 		return;
 
 	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
-	// This is very inefficient, it allocates new storage for the skeleton every call
-	// Instead use glBufferSubData to modify existing allocated storage.
-	// Hint - At most this buffer will need 18*4 = 72 floats worth of space.
-	GLCall(glBufferData(GL_ARRAY_BUFFER, _lines.size() * sizeof(float), _lines.data(), GL_DYNAMIC_DRAW));
+	// Todo: Look into using multiple buffers for performance
+	GLCall(glBufferSubData(GL_ARRAY_BUFFER, 0, numLines * sizeof(float), _lines));
 	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
 	
 	GLCall(glBindVertexArray(VAO2));
@@ -397,14 +390,14 @@ void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor, cons
 	GLCall(glUniform4f(skeletonColorUniformLocation, skeletonColor[0], skeletonColor[1], skeletonColor[2], skeletonColor[3]));
 	GLCall(glEnable(GL_LINE_SMOOTH));
 	GLCall(glLineWidth(lineWidth));
-	GLCall(glDrawArrays(GL_LINES, 0, _lines.size() / 2));
+	GLCall(glDrawArrays(GL_LINES, 0, numLines / 2));
 	GLCall(glLineWidth(1.0f));
 	GLCall(glDisable(GL_LINE_SMOOTH));
 
 	GLCall(glEnable(GL_PROGRAM_POINT_SIZE));
 	GLCall(glUniform4f(skeletonColorUniformLocation, jointColor[0], jointColor[1], jointColor[2], jointColor[3]));
 	GLCall(glUniform1f(pointSizeUniformLocation, pointSize));
-	GLCall(glDrawArrays(GL_POINTS, 0, _lines.size() / 2));
+	GLCall(glDrawArrays(GL_POINTS, 0, numLines / 2));
 	GLCall(glDisable(GL_PROGRAM_POINT_SIZE));
 	GLCall(glBindVertexArray(0));
 }
@@ -454,7 +447,7 @@ void NuitrackGLSample::initLines()
 	GLCall(glBindVertexArray(VAO2));
 	
 	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
-	GLCall(glBufferData(GL_ARRAY_BUFFER, 0, 0, GL_DYNAMIC_DRAW));
+	GLCall(glBufferData(GL_ARRAY_BUFFER, 72 * sizeof(float), _lines, GL_DYNAMIC_DRAW));
 
 	GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0));
 	GLCall(glEnableVertexAttribArray(0));
