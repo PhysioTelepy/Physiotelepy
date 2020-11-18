@@ -55,7 +55,8 @@ private:
 	uint8_t* _textureBuffer;
 	GLfloat _textureCoords[8];
 	GLfloat _vertexes[8];
-	std::vector<GLfloat> _lines;
+	GLfloat _lines[72];
+	int numLines = 0;
 	std::vector<GLfloat> _leftHandPointers;
 	std::vector<GLfloat> _rightHandPointers;
 	std::vector<tdv::nuitrack::Gesture> _userGestures;
