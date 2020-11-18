@@ -3,12 +3,9 @@
 
 #include "opgl.h"
 #include <nuitrack/Nuitrack.h>
-
-#ifdef _WIN32
-#include <Windows.h>
-#endif
 #include <string>
-
+#include <ctime>
+#include <chrono>
 
 typedef enum
 {
@@ -17,6 +14,19 @@ typedef enum
 	MODES_MAX_COUNT
 } ViewMode;
 
+// This data structure is too heavy, need to make is smaller.
+// Real world coordinates are not required
+// All joints are probably not required
+// Orientation is not required
+// (Maybe Data for non-confident joints can also be stripped?)
+// With this data structure 20 secs of joint data (without sampling) is about 0.8MB!!!
+// Maybe even think about compression
+// Target for 20sec of video should be ~100-200KB
+// Maybe add a sample rate (10 times /second or something?)
+struct JointFrame {
+	std::time_t timeStamp;
+	std::vector<tdv::nuitrack::Joint> joints;
+};
 
 
 // Main class of the sample
@@ -42,7 +52,19 @@ public:
 		return _outputMode;
 	}
 
+	// Record skeleton data for a duration in seconds
+	void startRecording(int duration);
+
+	void timer(int duration);
+
+	void saveBufferToDisk();
+
+
 private:
+	std::mutex jointDataBufferMutex;
+	std::vector<JointFrame> jointDataBuffer;
+	std::atomic<bool> record;
+	std::atomic<bool> saving;
 	int _width, _height;
 	// GL data
 	int skeletonColorUniformLocation = -1;
@@ -92,6 +114,7 @@ private:
 	
 	void initTexture(int width, int height);
 	void initLines();
+	void stopRecording();
 };
 
 #endif /* NUITRACKGLSAMPLE_H_ */
