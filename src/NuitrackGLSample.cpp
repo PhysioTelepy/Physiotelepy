@@ -4,14 +4,16 @@
 #include <iostream>
 #include "UserInteraction.h"
 
-
 NuitrackGLSample::NuitrackGLSample() :
 	_textureID(0),
 	_textureBuffer(0),
 	_width(640),
 	_height(480),
 	_isInitialized(false)
-{}
+{
+	record.store(false);
+	saving.store(false);
+}
 
 NuitrackGLSample::~NuitrackGLSample()
 {
@@ -79,7 +81,6 @@ const char* fragmentShaderSource2 = "#version 330 core\n"
 
 void NuitrackGLSample::init(const std::string& config)
 {
-	// Initialize Nuitrack first, then create Nuitrack modules
 	try
 	{
 		tdv::nuitrack::Nuitrack::init(config);
@@ -216,6 +217,62 @@ void NuitrackGLSample::release()
 	}
 }
 
+void NuitrackGLSample::saveBufferToDisk()
+{
+	jointDataBufferMutex.lock();
+
+	int size = 0;
+	for (int i = 0; i < jointDataBuffer.size(); i++)
+	{
+		size += sizeof(std::time_t);
+		size += sizeof(tdv::nuitrack::Joint) * jointDataBuffer[i].joints.size();
+	}
+	std::cout << "This would hava taken up: " << size << " bytes" << std::endl;
+	
+	std::this_thread::sleep_for(std::chrono::seconds(5));
+	
+	jointDataBufferMutex.unlock();
+}
+
+void NuitrackGLSample::stopRecording()
+{
+	if (record.load() && !saving.load())
+	{
+		saving.store(true);
+		record.store(false);
+		// Start a thread that saves the data from the recorded buffer.
+		std::cout << "Saving data to disk" << std::endl;
+		std::thread writerThread (&NuitrackGLSample::saveBufferToDisk, this);
+		writerThread.join();
+		saving.store(false);
+		std::cout << "Data saved to disk" << std::endl << std::endl;
+	}
+	else {
+		std::cout << "Invalid operation" << std::endl;
+	}
+}
+
+void NuitrackGLSample::timer(int duration)
+{
+	std::this_thread::sleep_for(std::chrono::seconds(duration));
+	std::cout << "Stopping recording" << std::endl;
+	stopRecording();
+}
+
+void NuitrackGLSample::startRecording(int duration)
+{
+	if (record.load() || saving.load())
+	{
+		std::cout << "A video is currently being recorded, please wait until it has finished." << std::endl;
+	}
+	else {
+		std::cout << std::endl << "Starting video recording" << std::endl;
+		record.store(true);
+		std::thread timerThread(&NuitrackGLSample::timer, this, duration);
+		timerThread.detach();
+	}
+}
+
 // Callback for onLostUser event
 void NuitrackGLSample::onLostUserCallback(int id)
 {
@@ -236,6 +293,9 @@ void NuitrackGLSample::onIssuesUpdate(tdv::nuitrack::IssuesData::Ptr issuesData)
 // Copy color frame data, received from Nuitrack, to texture to visualize
 void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 {
+	//std::thread::id this_id = std::this_thread::get_id();
+	//std::cout << "RGB update thread: " << this_id << std::endl;
+
 	// Storing from end of the buffer to start because frame data is received from top to bottom
 	// OpenGl requires texture data from the bottom to top.
 	// This will reverse the x-axis order of pixels too but it works out because image from a camera is mirrored.
@@ -278,6 +338,7 @@ void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 // Prepare visualization of skeletons, received from Nuitrack
 void NuitrackGLSample::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons)
 {
+	
 	numLines = 0;
 	
 	auto skeletons = userSkeletons->getSkeletons();
@@ -292,6 +353,21 @@ void NuitrackGLSample::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSke
 // Helper function to draw skeleton from Nuitrack data
 void NuitrackGLSample::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 {
+	std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+	if (record.load() && !saving.load())
+	{
+		if (jointDataBufferMutex.try_lock()) {
+			JointFrame frame;
+			frame.joints = joints;
+			frame.timeStamp = time;
+			jointDataBuffer.push_back(frame);
+			jointDataBufferMutex.unlock();
+		} 
+		else
+		{
+			std::cout << "Locking failed" << std::endl;;
+		}
+	}
 
 	// We need to draw a bone for every pair of neighbour joints
 	drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]);

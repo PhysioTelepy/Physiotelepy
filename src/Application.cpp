@@ -88,6 +88,9 @@ int main(int argc, char* argv[])
 	// Start main loop
 	while (!glfwWindowShouldClose(window))
 	{
+		//std::thread::id this_id = std::this_thread::get_id();
+		//std::cout << "Main thread: " << this_id << std::endl;
+
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
@@ -102,6 +105,15 @@ int main(int argc, char* argv[])
 			ImGui::SliderFloat("Line width", &lineWidth, 0.1f, 15.0f);
 			ImGui::ColorPicker3("Skeleton color picker", skeletonColor);
 			ImGui::ColorPicker3("Joint color picker", jointColor);
+			ImGui::End();
+		}
+
+		{
+			ImGui::Begin("Record");
+			if (ImGui::Button("Start recording"))
+			{
+				sample.startRecording(20);
+			}
 			ImGui::End();
 		}
 
