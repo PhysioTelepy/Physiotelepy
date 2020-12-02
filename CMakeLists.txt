@@ -41,13 +41,15 @@ link_directories(
 )
 
 set(SOURCES
-    src/NuitrackGLSample.cpp
+    src/NuitrackGL.cpp
     src/Application.cpp
-    src/NuitrackGLSample.h
+    src/NuitrackGL.h
     src/UserInteraction.h
     src/UserInteraction.cpp
     src/opgl.h
     src/opgl.cpp
+    src/DiskHelper.cpp
+    src/DiskHelper.h
     src/imgui/imconfig.h
     src/imgui/imgui.cpp
     src/imgui/imgui.h

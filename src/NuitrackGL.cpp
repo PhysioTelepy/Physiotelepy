@@ -1,10 +1,12 @@
-#include "NuitrackGLSample.h"
+#include "NuitrackGL.h"
 
 #include <string>
 #include <iostream>
+#include <fstream>
 #include "UserInteraction.h"
+#include "DiskHelper.h"
 
-NuitrackGLSample::NuitrackGLSample() :
+NuitrackGL::NuitrackGL() :
 	_textureID(0),
 	_textureBuffer(0),
 	_width(640),
@@ -13,9 +15,10 @@ NuitrackGLSample::NuitrackGLSample() :
 {
 	record.store(false);
 	saving.store(false);
+	replay.store(false);
 }
 
-NuitrackGLSample::~NuitrackGLSample()
+NuitrackGL::~NuitrackGL()
 {
 	try
 	{
@@ -79,7 +82,7 @@ const char* fragmentShaderSource2 = "#version 330 core\n"
 "   FragColor = color;\n"
 "}\n\0";
 
-void NuitrackGLSample::init(const std::string& config)
+void NuitrackGL::init(const std::string& config)
 {
 	try
 	{
@@ -132,23 +135,23 @@ void NuitrackGLSample::init(const std::string& config)
 	// colorsensor doesn not seem to work unless depth sensor is created
 	_depthSensor = tdv::nuitrack::DepthSensor::create();
 	_colorSensor = tdv::nuitrack::ColorSensor::create();
-	_colorSensor->connectOnNewFrame(std::bind(&NuitrackGLSample::onNewRGBFrame, this, std::placeholders::_1));
+	_colorSensor->connectOnNewFrame(std::bind(&NuitrackGL::onNewRGBFrame, this, std::placeholders::_1));
 
 	_outputMode = _colorSensor->getOutputMode();
 	_width = _outputMode.xres;
 	_height = _outputMode.yres;
 
 	_userTracker = tdv::nuitrack::UserTracker::create();
-	_userTracker->connectOnNewUser(std::bind(&NuitrackGLSample::onNewUserCallback, this, std::placeholders::_1));
-	_userTracker->connectOnLostUser(std::bind(&NuitrackGLSample::onLostUserCallback, this, std::placeholders::_1));
+	_userTracker->connectOnNewUser(std::bind(&NuitrackGL::onNewUserCallback, this, std::placeholders::_1));
+	_userTracker->connectOnLostUser(std::bind(&NuitrackGL::onLostUserCallback, this, std::placeholders::_1));
 
 	_skeletonTracker = tdv::nuitrack::SkeletonTracker::create();
-	_skeletonTracker->connectOnUpdate(std::bind(&NuitrackGLSample::onSkeletonUpdate, this, std::placeholders::_1));
+	_skeletonTracker->connectOnUpdate(std::bind(&NuitrackGL::onSkeletonUpdate, this, std::placeholders::_1));
 
-	_onIssuesUpdateHandler = tdv::nuitrack::Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGLSample::onIssuesUpdate, this, std::placeholders::_1));
+	_onIssuesUpdateHandler = tdv::nuitrack::Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGL::onIssuesUpdate, this, std::placeholders::_1));
 }
 
-bool NuitrackGLSample::update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth)
+bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth, const bool& overrideJointColour)
 {
 	if (!_isInitialized)
 	{
@@ -171,11 +174,27 @@ bool NuitrackGLSample::update(float* skeletonColor, float* jointColor, const flo
 	}
 	try
 	{
-		// Wait and update Nuitrack data
+		std::thread replayLoader;
+		bool join = false;
+		if (replay.load())
+		{
+			if (replayPointer < readJointDataBuffer.size())
+			{
+				join = true;
+				replayLoader = std::thread(&NuitrackGL::updateTrainerSkeleton, this);
+			}
+			else {
+				replay.store(false);
+			}
+		}
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
+		if (join)
+			replayLoader.join();
+		// Set next frame here
 		
 		renderTexture();
-		renderLines(skeletonColor, jointColor, pointSize, lineWidth);
+		renderLinesUser(skeletonColor, jointColor, pointSize, lineWidth, _lines, numLines, true, overrideJointColour);
+		renderLinesTrainer(skeletonColor, jointColor, pointSize, lineWidth, _lines2, numLines2, replay.load(), overrideJointColour);
 	}
 	catch (const tdv::nuitrack::LicenseNotAcquiredException& e)
 	{
@@ -193,7 +212,7 @@ bool NuitrackGLSample::update(float* skeletonColor, float* jointColor, const flo
 	return true;
 }
 
-void NuitrackGLSample::release()
+void NuitrackGL::release()
 {
 	if (_onIssuesUpdateHandler)
 		tdv::nuitrack::Nuitrack::disconnectOnIssuesUpdate(_onIssuesUpdateHandler);
@@ -217,24 +236,27 @@ void NuitrackGLSample::release()
 	}
 }
 
-void NuitrackGLSample::saveBufferToDisk()
+void NuitrackGL::loadDataToBuffer(const std::string& path)
+{
+	DiskHelper::readDatafromDisk(path, readJointDataBuffer);
+}
+
+void NuitrackGL::saveBufferToDisk()
 {
 	jointDataBufferMutex.lock();
 
-	int size = 0;
-	for (int i = 0; i < jointDataBuffer.size(); i++)
-	{
-		size += sizeof(std::time_t);
-		size += sizeof(tdv::nuitrack::Joint) * jointDataBuffer[i].joints.size();
-	}
-	std::cout << "This would hava taken up: " << size << " bytes" << std::endl;
-	
-	std::this_thread::sleep_for(std::chrono::seconds(5));
-	
+	DiskHelper::writeDataToDisk("test.txt", writeJointDataBuffer);
+
 	jointDataBufferMutex.unlock();
 }
 
-void NuitrackGLSample::stopRecording()
+void NuitrackGL::playLoadedData()
+{
+	replayPointer = 0;
+	replay.store(true);
+}
+
+void NuitrackGL::stopRecording()
 {
 	if (record.load() && !saving.load())
 	{
@@ -242,24 +264,25 @@ void NuitrackGLSample::stopRecording()
 		record.store(false);
 		// Start a thread that saves the data from the recorded buffer.
 		std::cout << "Saving data to disk" << std::endl;
-		std::thread writerThread (&NuitrackGLSample::saveBufferToDisk, this);
+		std::thread writerThread (&NuitrackGL::saveBufferToDisk, this);
 		writerThread.join();
 		saving.store(false);
 		std::cout << "Data saved to disk" << std::endl << std::endl;
 	}
-	else {
+	else 
+	{
 		std::cout << "Invalid operation" << std::endl;
 	}
 }
 
-void NuitrackGLSample::timer(int duration)
+void NuitrackGL::stopRecordingTimer(const int& duration)
 {
 	std::this_thread::sleep_for(std::chrono::seconds(duration));
 	std::cout << "Stopping recording" << std::endl;
 	stopRecording();
 }
 
-void NuitrackGLSample::startRecording(int duration)
+void NuitrackGL::startRecording(const int& duration)
 {
 	if (record.load() || saving.load())
 	{
@@ -267,31 +290,32 @@ void NuitrackGLSample::startRecording(int duration)
 	}
 	else {
 		std::cout << std::endl << "Starting video recording" << std::endl;
+		writeJointDataBuffer.clear();
 		record.store(true);
-		std::thread timerThread(&NuitrackGLSample::timer, this, duration);
+		std::thread timerThread(&NuitrackGL::stopRecordingTimer, this, duration);
 		timerThread.detach();
 	}
 }
 
 // Callback for onLostUser event
-void NuitrackGLSample::onLostUserCallback(int id)
+void NuitrackGL::onLostUserCallback(int id)
 {
 	std::cout << "Lost User " << id << std::endl;
 }
 
 // Callback for onNewUser event
-void NuitrackGLSample::onNewUserCallback(int id)
+void NuitrackGL::onNewUserCallback(int id)
 {
 	std::cout << "New User " << id << std::endl;
 }
 
-void NuitrackGLSample::onIssuesUpdate(tdv::nuitrack::IssuesData::Ptr issuesData)
+void NuitrackGL::onIssuesUpdate(tdv::nuitrack::IssuesData::Ptr issuesData)
 {
 	_issuesData = issuesData;
 }
 
 // Copy color frame data, received from Nuitrack, to texture to visualize
-void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
+void NuitrackGL::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 {
 	//std::thread::id this_id = std::this_thread::get_id();
 	//std::cout << "RGB update thread: " << this_id << std::endl;
@@ -336,11 +360,10 @@ void NuitrackGLSample::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 }
 
 // Prepare visualization of skeletons, received from Nuitrack
-void NuitrackGLSample::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons)
+void NuitrackGL::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons)
 {
-	
 	numLines = 0;
-	
+
 	auto skeletons = userSkeletons->getSkeletons();
 
 
@@ -351,47 +374,115 @@ void NuitrackGLSample::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSke
 }
 
 // Helper function to draw skeleton from Nuitrack data
-void NuitrackGLSample::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
+void NuitrackGL::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 {
+	bool hasJoints = true;
+
+	// We need to draw a bone for every pair of neighbour joints
+	if (!drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_NECK], joints[tdv::nuitrack::JOINT_LEFT_COLLAR]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_TORSO]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_LEFT_SHOULDER]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_LEFT_HIP]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_RIGHT_HIP]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_TORSO], joints[tdv::nuitrack::JOINT_WAIST]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER], joints[tdv::nuitrack::JOINT_LEFT_ELBOW]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_ELBOW], joints[tdv::nuitrack::JOINT_LEFT_WRIST]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_WRIST], joints[tdv::nuitrack::JOINT_LEFT_HAND]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER], joints[tdv::nuitrack::JOINT_RIGHT_ELBOW]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW], joints[tdv::nuitrack::JOINT_RIGHT_WRIST]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_WRIST], joints[tdv::nuitrack::JOINT_RIGHT_HAND]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_HIP], joints[tdv::nuitrack::JOINT_RIGHT_KNEE]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_HIP], joints[tdv::nuitrack::JOINT_LEFT_KNEE]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_KNEE], joints[tdv::nuitrack::JOINT_RIGHT_ANKLE]))
+		hasJoints = false;
+	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]))
+		hasJoints = false;
+
 	std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-	if (record.load() && !saving.load())
+	if (record.load() && !saving.load() && hasJoints)
 	{
 		if (jointDataBufferMutex.try_lock()) {
 			JointFrame frame;
-			frame.joints = joints;
+
+			for (int i = 0; i < 25; i++)
+			{
+				frame.joints[i].x = joints[i].proj.x;
+				frame.joints[i].y = joints[i].proj.y;
+				frame.confidence[i] = joints[i].confidence;
+			}
 			frame.timeStamp = time;
-			jointDataBuffer.push_back(frame);
+			writeJointDataBuffer.push_back(frame);
 			jointDataBufferMutex.unlock();
-		} 
+		}
 		else
 		{
-			std::cout << "Locking failed" << std::endl;;
+			std::cout << "Locking failed" << std::endl;
 		}
 	}
 
-	// We need to draw a bone for every pair of neighbour joints
-	drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]);
-	drawBone(joints[tdv::nuitrack::JOINT_NECK], joints[tdv::nuitrack::JOINT_LEFT_COLLAR]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_TORSO]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_LEFT_SHOULDER]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER]);
-	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_LEFT_HIP]);
-	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_RIGHT_HIP]);
-	drawBone(joints[tdv::nuitrack::JOINT_TORSO], joints[tdv::nuitrack::JOINT_WAIST]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER], joints[tdv::nuitrack::JOINT_LEFT_ELBOW]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_ELBOW], joints[tdv::nuitrack::JOINT_LEFT_WRIST]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_WRIST], joints[tdv::nuitrack::JOINT_LEFT_HAND]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER], joints[tdv::nuitrack::JOINT_RIGHT_ELBOW]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW], joints[tdv::nuitrack::JOINT_RIGHT_WRIST]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_WRIST], joints[tdv::nuitrack::JOINT_RIGHT_HAND]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_HIP], joints[tdv::nuitrack::JOINT_RIGHT_KNEE]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_HIP], joints[tdv::nuitrack::JOINT_LEFT_KNEE]);
-	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_KNEE], joints[tdv::nuitrack::JOINT_RIGHT_ANKLE]);
-	drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]);
+	hasAllJoints = hasJoints;
+}
+
+void NuitrackGL::updateTrainerSkeleton()
+{
+	numLines2 = 0;
+
+	const JointFrame& jf = readJointDataBuffer.at(replayPointer);
+	replayPointer += 1;
+
+	drawBone(jf, tdv::nuitrack::JOINT_HEAD, tdv::nuitrack::JOINT_NECK);
+	drawBone(jf, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER);
+	drawBone(jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_LEFT_HIP);
+	drawBone(jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_RIGHT_HIP);
+	drawBone(jf, tdv::nuitrack::JOINT_TORSO, tdv::nuitrack::JOINT_WAIST);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_WRIST, tdv::nuitrack::JOINT_LEFT_HAND);
+	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW);
+	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST);
+	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_WRIST, tdv::nuitrack::JOINT_RIGHT_HAND);
+	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_RIGHT_KNEE);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_LEFT_KNEE);
+	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_ANKLE);
+	drawBone(jf, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_ANKLE);
+}
+
+void NuitrackGL::drawBone(const JointFrame& j1, int index1, int index2)
+{
+	if (j1.confidence[index1] > 0.15 && j1.confidence[index2] > 0.15)
+	{
+		_lines2[numLines2] = (-j1.joints[index1].x * 2) + 1;
+		_lines2[numLines2 + 1] = (-j1.joints[index1].y * 2) + 1;
+		_lines2[numLines2 + 2] = (-j1.joints[index2].x * 2) + 1;
+		_lines2[numLines2 + 3] = (-j1.joints[index2].y * 2) + 1;
+
+		numLines2 += 4;
+	}
 }
 
 // Helper function to draw a skeleton bone
-void NuitrackGLSample::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2)
+bool NuitrackGL::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2)
 {
 	// Prepare line data for confident enough bones only
 
@@ -418,11 +509,16 @@ void NuitrackGLSample::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitr
 		_lines[numLines+3] = (-j2.proj.y * 2) + 1;
 
 		numLines += 4;
+		return true;
+	}
+	else 
+	{
+		return false;
 	}
 }
 
 // Render prepared background texture
-void NuitrackGLSample::renderTexture()
+void NuitrackGL::renderTexture()
 {
 	GLCall(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 	GLCall(glClear(GL_COLOR_BUFFER_BIT));
@@ -438,15 +534,85 @@ void NuitrackGLSample::renderTexture()
 	GLCall(glBindVertexArray(0));
 }
 
-// Visualize bones, joints and hand positions
-void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth)
+void NuitrackGL::renderLinesUser(const float* skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& size, bool render, const bool& overrideJointColour)
 {
-	if (numLines == 0)
+	if (size == 0 || !render)
 		return;
 
 	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
 	// Todo: Look into using multiple buffers for performance
-	GLCall(glBufferSubData(GL_ARRAY_BUFFER, 0, numLines * sizeof(float), _lines));
+	GLCall(glBufferSubData(GL_ARRAY_BUFFER, 0, size * sizeof(float), lines));
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
+
+	GLCall(glBindVertexArray(VAO2));
+
+
+	if (skeletonColorUniformLocation == -1)
+	{
+		GLCall(skeletonColorUniformLocation = glGetUniformLocation(shaderProgram2, "color"));
+	}
+
+	if (pointSizeUniformLocation == -1)
+	{
+		GLCall(pointSizeUniformLocation = glGetUniformLocation(shaderProgram2, "pointSize"));
+	}
+	GLCall(glUseProgram(shaderProgram2));
+
+
+	if (overrideJointColour)
+	{
+		GLCall(glUniform4f(skeletonColorUniformLocation, skeletonColor[0], skeletonColor[1], skeletonColor[2], skeletonColor[3]));
+	}
+	else
+	{
+		if (hasAllJoints)
+		{
+			GLCall(glUniform4f(skeletonColorUniformLocation, 0.0f, 1.0f, 0.0f, 1.0f));
+		}
+		else
+		{
+			GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.0f, 0.0f, 1.0f));
+		}
+	}
+
+	GLCall(glEnable(GL_LINE_SMOOTH));
+	GLCall(glLineWidth(lineWidth));
+	GLCall(glDrawArrays(GL_LINES, 0, size / 2));
+	GLCall(glLineWidth(1.0f));
+	GLCall(glDisable(GL_LINE_SMOOTH));
+
+	if (overrideJointColour)
+	{
+		GLCall(glUniform4f(skeletonColorUniformLocation, jointColor[0], jointColor[1], jointColor[2], jointColor[3]));
+	}
+	else
+	{
+		if (hasAllJoints)
+		{
+			GLCall(glUniform4f(skeletonColorUniformLocation, 0.0f, 1.0f, 0.0f, 1.0f));
+		}
+		else
+		{
+			GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.0f, 0.0f, 1.0f));
+		}
+	}
+
+	GLCall(glEnable(GL_PROGRAM_POINT_SIZE));
+	GLCall(glUniform1f(pointSizeUniformLocation, pointSize));
+	GLCall(glDrawArrays(GL_POINTS, 0, size / 2));
+	GLCall(glDisable(GL_PROGRAM_POINT_SIZE));
+	GLCall(glBindVertexArray(0));
+}
+
+// Visualize bones, joints and hand positions
+void NuitrackGL::renderLinesTrainer(const float *skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& size, bool render, const bool& overrideJointColour)
+{
+	if (size == 0 || !render)
+		return;
+
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
+	// Todo: Look into using multiple buffers for performance
+	GLCall(glBufferSubData(GL_ARRAY_BUFFER, 0, size * sizeof(float), lines));
 	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
 	
 	GLCall(glBindVertexArray(VAO2));
@@ -463,22 +629,39 @@ void NuitrackGLSample::renderLines(float *skeletonColor, float* jointColor, cons
 	}
 	GLCall(glUseProgram(shaderProgram2));
 
-	GLCall(glUniform4f(skeletonColorUniformLocation, skeletonColor[0], skeletonColor[1], skeletonColor[2], skeletonColor[3]));
+	
+	if (overrideJointColour)
+	{
+		GLCall(glUniform4f(skeletonColorUniformLocation, skeletonColor[0], skeletonColor[1], skeletonColor[2], skeletonColor[3]));
+	}
+	else
+	{
+		GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.41f, 0.0f, 1.0f));
+	}
+	
 	GLCall(glEnable(GL_LINE_SMOOTH));
 	GLCall(glLineWidth(lineWidth));
-	GLCall(glDrawArrays(GL_LINES, 0, numLines / 2));
+	GLCall(glDrawArrays(GL_LINES, 0, size / 2));
 	GLCall(glLineWidth(1.0f));
 	GLCall(glDisable(GL_LINE_SMOOTH));
 
+	if (overrideJointColour)
+	{
+		GLCall(glUniform4f(skeletonColorUniformLocation, jointColor[0], jointColor[1], jointColor[2], jointColor[3]));
+	}
+	else
+	{
+		GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.41f, 0.0f, 1.0f));
+	}
+
 	GLCall(glEnable(GL_PROGRAM_POINT_SIZE));
-	GLCall(glUniform4f(skeletonColorUniformLocation, jointColor[0], jointColor[1], jointColor[2], jointColor[3]));
 	GLCall(glUniform1f(pointSizeUniformLocation, pointSize));
-	GLCall(glDrawArrays(GL_POINTS, 0, numLines / 2));
+	GLCall(glDrawArrays(GL_POINTS, 0, size / 2));
 	GLCall(glDisable(GL_PROGRAM_POINT_SIZE));
 	GLCall(glBindVertexArray(0));
 }
 
-void NuitrackGLSample::initLines()
+void NuitrackGL::initLines()
 {
 	GLCall(int vertexShader = glCreateShader(GL_VERTEX_SHADER));
 	GLCall(glShaderSource(vertexShader, 1, &vertexShaderSource2, NULL));
@@ -523,7 +706,7 @@ void NuitrackGLSample::initLines()
 	GLCall(glBindVertexArray(VAO2));
 	
 	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
-	GLCall(glBufferData(GL_ARRAY_BUFFER, 72 * sizeof(float), _lines, GL_DYNAMIC_DRAW));
+	GLCall(glBufferData(GL_ARRAY_BUFFER, 72 * sizeof(float), 0, GL_DYNAMIC_DRAW));
 
 	GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0));
 	GLCall(glEnableVertexAttribArray(0));
@@ -534,7 +717,7 @@ void NuitrackGLSample::initLines()
 	GLCall(glDisableVertexAttribArray(0));
 }
 
-void NuitrackGLSample::initTexture(int width, int height)
+void NuitrackGL::initTexture(int width, int height)
 {
 	GLCall(int vertexShader = glCreateShader(GL_VERTEX_SHADER));
 	GLCall(glShaderSource(vertexShader, 1, &vertexShaderSource, NULL));

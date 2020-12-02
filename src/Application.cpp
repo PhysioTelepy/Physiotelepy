@@ -1,5 +1,5 @@
 
-#include "NuitrackGLSample.h"
+#include "NuitrackGL.h"
 #include "GLFW/glfw3.h"
 
 #include "imgui/imgui.h"
@@ -7,11 +7,12 @@
 #include "imgui/imgui_impl_opengl3.h"
 
 #include <iostream>
-
+#include <fstream>
 #include <direct.h>
+
 #define GetCurrentDir _getcwd
 
-NuitrackGLSample sample;
+NuitrackGL sample;
 
 void showHelpInfo()
 {
@@ -70,6 +71,8 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
+	glfwSwapInterval(0);
+
 	std::cout << glGetString(GL_VERSION) << std::endl;
 
 	IMGUI_CHECKVERSION();
@@ -80,10 +83,13 @@ int main(int argc, char* argv[])
 	ImGui_ImplOpenGL3_Init(glsl_version);
 
 	bool showDemoWindow = false;
+	bool overrideJointColour = false;
 	float skeletonColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	float jointColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	float pointSize = 10.0f;
-	float lineWidth = 1.0f;
+	float lineWidth = 4.0f;
+
+	int recordDuration = 20; // In seconds
 
 	// Start main loop
 	while (!glfwWindowShouldClose(window))
@@ -100,6 +106,7 @@ int main(int argc, char* argv[])
 
 		{
 			ImGui::Begin("Debug Window");
+			ImGui::Checkbox("Override joint colour", &overrideJointColour);
 			ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 			ImGui::SliderFloat("Joint size", &pointSize, 0.1f, 20.0f);
 			ImGui::SliderFloat("Line width", &lineWidth, 0.1f, 15.0f);
@@ -110,15 +117,31 @@ int main(int argc, char* argv[])
 
 		{
 			ImGui::Begin("Record");
+			ImGui::SliderInt("Record duration", &recordDuration, 5, 60);
 			if (ImGui::Button("Start recording"))
 			{
-				sample.startRecording(20);
+				sample.startRecording(recordDuration);
 			}
 			ImGui::End();
 		}
 
+		{
+			ImGui::Begin("Load Joint Data from Disk");
+			if (ImGui::Button("Load"))
+			{
+				sample.loadDataToBuffer("test.txt");
+			}
+
+			if (ImGui::Button("Play loaded data"))
+			{
+				sample.playLoadedData();
+			}
+			ImGui::End();
+		}
+
+
 		// Delegate this action to example's main class
-		bool update = sample.update(skeletonColor, jointColor, pointSize, lineWidth);
+		bool update = sample.update(skeletonColor, jointColor, pointSize, lineWidth, overrideJointColour);
 
 		if (!update)
 		{
@@ -137,6 +160,7 @@ int main(int argc, char* argv[])
 		glfwPollEvents();
 	}
 
+	sample.release();
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();
 	glfwTerminate();
