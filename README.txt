@@ -14,6 +14,10 @@
 
 - Press Open Project so that it opens in Visual Studio
 
+- Open the "Project" drop down menu and click "Set Startup Projects..."
+
+- Set the "Single startup project" to "Physiotelepy" and apply changes
+
 - Open the drop down menu beside Local Windows Debugger and open "Physiotelepy Debug Properties"
 
 - Go to "Debugging" and in Environment set "PATH=C:\Users\sadat\Documents\School\fydp-coding-stuff\Physiotelepy\nuitrack\bin" or whatever the path to your bin is
