@@ -34,11 +34,13 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 		bool confidence = false;
 		bool x = false;
 		bool y = false;
+		bool angle = false;
 
 		unsigned int p1 = 0;
 		unsigned int p2 = 0;
 
 		uint8_t index = 0;
+		uint8_t index2 = 0;
 
 		while (p2 < line.size())
 		{
@@ -70,6 +72,10 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 				else if (typeString.compare("y") == 0)
 				{
 					y = true;
+				}
+				else if (typeString.compare("Angle") == 0)
+				{
+					angle = true;
 				}
 				else {
 					std::cout << "Error when trying to read file" << std::endl;
@@ -117,6 +123,12 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 					jointFrame.joints[index].y = std::stof(dataString);
 					index++;
 				}
+				else if (angle)
+				{
+					angle = false;
+					jointFrame.angles[index2] = std::stoi(dataString);
+					index2++;
+				}
 				else {
 					std::cout << "Error when trying to read file" << std::endl;
 					return;
@@ -149,6 +161,9 @@ void DiskHelper::writeDataToDisk(const std::string& path, const std::vector<Join
 		file << "Time," << buffer[j].timeStamp << ",";
 		for (int i = 0; i < 25; i++)
 			file << "Type," << i << ",Confidence," << buffer[j].confidence[i] << ",x," << buffer[j].joints[i].x << ",y," << buffer[j].joints[i].y << ",";
+		
+		for (int i = 0; i < 19; i++)
+			file << "Angle," << buffer[j].angles[i] << ",";
 
 		file << std::endl;
 	}

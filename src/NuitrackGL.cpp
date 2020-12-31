@@ -1,3 +1,6 @@
+#define M_PI 3.14159265358979323846
+#define CORRECTNESS_THRESHOLD 80
+
 #include "NuitrackGL.h"
 
 #include <string>
@@ -175,12 +178,12 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 	try
 	{
 		std::thread replayLoader;
-		bool join = false;
+		bool isReplay = false;
 		if (replay.load())
 		{
 			if (replayPointer < readJointDataBuffer.size())
 			{
-				join = true;
+				isReplay = true;
 				replayLoader = std::thread(&NuitrackGL::updateTrainerSkeleton, this);
 			}
 			else {
@@ -188,10 +191,34 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 			}
 		}
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
-		if (join)
+		if (isReplay)
 			replayLoader.join();
 		// Set next frame here
 		
+		//Calculate Angle correctness
+		if (isReplay && hasAllJoints)
+		{
+
+			if (replayPointer % 30 == 0)
+			{
+				int correctness = 0;
+
+				for (int i = 0; i < 19; i++)
+				{
+					correctness += abs(userAngles[i] - readJointDataBuffer[replayPointer].angles[i]); // Manhattan distance 
+				}
+				std::cout << "Correctness result: " << correctness << std::endl;
+
+				if (correctness < CORRECTNESS_THRESHOLD)
+				{
+					replayPointer++;
+				}
+			}
+			else {
+				replayPointer++;
+			}
+		}
+
 		renderTexture();
 		renderLinesUser(skeletonColor, jointColor, pointSize, lineWidth, _lines, numLines, true, overrideJointColour);
 		renderLinesTrainer(skeletonColor, jointColor, pointSize, lineWidth, _lines2, numLines2, replay.load(), overrideJointColour);
@@ -280,6 +307,72 @@ void NuitrackGL::stopRecordingTimer(const int& duration)
 	std::this_thread::sleep_for(std::chrono::seconds(duration));
 	std::cout << "Stopping recording" << std::endl;
 	stopRecording();
+}
+
+int NuitrackGL::get2DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index)
+{
+	const Vector2& a = jointFrame.joints[a_index];
+	const Vector2& b = jointFrame.joints[b_index];
+	const Vector2& c = jointFrame.joints[b_index];
+
+	Vector2 ab = { b.x - a.x, b.y - a.y };
+	Vector2 cb = { b.x - c.x, b.y - c.y };
+
+	float dot = (ab.x * cb.x + ab.y * cb.y);
+	float cross = (ab.x * cb.y - ab.y * cb.x);
+
+	float alpha = atan2(cross, dot);
+
+	int retVal = (int)floor(alpha * 180. / M_PI + 0.5);
+
+	if (retVal < 0)
+		retVal = 360 + retVal;
+
+	return retVal;
+}
+
+int NuitrackGL::get3DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index)
+{
+	const Vector2& a = jointFrame.joints[a_index];
+	const Vector2& b = jointFrame.joints[b_index];
+	const Vector2& c = jointFrame.joints[b_index];
+
+	Vector2 ab = { b.x - a.x, b.y - a.y };
+	Vector2 cb = { b.x - c.x, b.y - c.y };
+
+	float dot = (ab.x * cb.x + ab.y * cb.y);
+	float cross = (ab.x * cb.y - ab.y * cb.x);
+
+	float alpha = atan2(cross, dot);
+
+	int retVal = (int)floor(alpha * 180. / M_PI + 0.5);
+
+	if (retVal < 0)
+		retVal = 360 + retVal;
+
+	return retVal;
+}
+
+int NuitrackGL::get3DAngleABC(const std::vector<tdv::nuitrack::Joint>& joints, int a_index, int b_index, int c_index)
+{
+	const tdv::nuitrack::Joint& a = joints[a_index];
+	const tdv::nuitrack::Joint& b = joints[b_index];
+	const tdv::nuitrack::Joint& c = joints[c_index];
+
+	Vector2 ab = { b.proj.x - a.proj.x, b.proj.y - a.proj.y };
+	Vector2 cb = { b.proj.x - c.proj.x, b.proj.y - c.proj.y };
+
+	float dot = (ab.x * cb.x + ab.y * cb.y);
+	float cross = (ab.x * cb.y - ab.y * cb.x);
+
+	float alpha = atan2(cross, dot);
+
+	int retVal = (int)floor(alpha * 180. / M_PI + 0.5);
+
+	if (retVal < 0)
+		retVal = 360 + retVal;
+
+	return retVal;
 }
 
 void NuitrackGL::startRecording(const int& duration)
@@ -416,6 +509,30 @@ void NuitrackGL::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]))
 		hasJoints = false;
 
+	hasAllJoints = hasJoints;
+
+	if (hasJoints) {
+		userAngles[0] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_ANKLE, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_HIP);
+		userAngles[1] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_ANKLE, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_HIP);
+		userAngles[2] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_RIGHT_HIP);
+		userAngles[3] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_WAIST);
+		userAngles[4] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_WAIST);
+		userAngles[5] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_TORSO);
+		userAngles[6] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_TORSO);
+		userAngles[7] = get3DAngleABC(joints, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_TORSO, tdv::nuitrack::JOINT_LEFT_COLLAR); // Joint left collar same as joint right collar
+		userAngles[8] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
+		userAngles[9] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
+		userAngles[10] = get3DAngleABC(joints, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER);
+		userAngles[11] = get3DAngleABC(joints, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER);
+		userAngles[12] = get3DAngleABC(joints, tdv::nuitrack::JOINT_HEAD, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR);
+		userAngles[13] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW);
+		userAngles[14] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW);
+		userAngles[15] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST);
+		userAngles[16] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST);
+		userAngles[17] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST, tdv::nuitrack::JOINT_LEFT_HAND);
+		userAngles[18] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST, tdv::nuitrack::JOINT_RIGHT_HAND);
+	}
+
 	std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 	if (record.load() && !saving.load() && hasJoints)
 	{
@@ -427,7 +544,17 @@ void NuitrackGL::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 				frame.joints[i].x = joints[i].proj.x;
 				frame.joints[i].y = joints[i].proj.y;
 				frame.confidence[i] = joints[i].confidence;
+				frame.realJoints[i].x = joints[i].real.x;
+				frame.realJoints[i].y = joints[i].real.y;
+				frame.realJoints[i].z = joints[i].real.z;
+				
 			}
+
+			for (int i = 0; i < 19; i++)
+			{
+				frame.angles[i] = userAngles[i];
+			}
+
 			frame.timeStamp = time;
 			writeJointDataBuffer.push_back(frame);
 			jointDataBufferMutex.unlock();
@@ -438,7 +565,7 @@ void NuitrackGL::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 		}
 	}
 
-	hasAllJoints = hasJoints;
+	
 }
 
 void NuitrackGL::updateTrainerSkeleton()
@@ -446,7 +573,6 @@ void NuitrackGL::updateTrainerSkeleton()
 	numLines2 = 0;
 
 	const JointFrame& jf = readJointDataBuffer.at(replayPointer);
-	replayPointer += 1;
 
 	drawBone(jf, tdv::nuitrack::JOINT_HEAD, tdv::nuitrack::JOINT_NECK);
 	drawBone(jf, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR);
