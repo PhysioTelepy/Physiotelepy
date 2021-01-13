@@ -20,6 +20,13 @@ struct Vector2
 	float y;
 };
 
+struct Vector3
+{
+	float x;
+	float y;
+	float z;
+};
+
 // This data structure is too heavy, need to make is smaller.
 // Real world coordinates are not required
 // All joints are probably not required
@@ -33,7 +40,9 @@ struct JointFrame
 {
 	std::time_t timeStamp;
 	Vector2 joints[25];
+	Vector3 realJoints[25];
 	float confidence[25];
+	int angles[19];
 };
 
 // Main class of the sample
@@ -66,15 +75,17 @@ public:
 	void playLoadedData();
 
 private:
+	int userAngles[19];
+
 	std::mutex jointDataBufferMutex;
 
 	std::vector<JointFrame> writeJointDataBuffer;
 	std::vector<JointFrame> readJointDataBuffer;
+	int replayPointer = 0;
 
 	std::atomic<bool> record;
 	std::atomic<bool> saving;
 
-	int replayPointer = 0;
 	std::atomic<bool> replay;
 
 	int _width, _height;
@@ -132,6 +143,11 @@ private:
 
 	void stopRecording();
 	void stopRecordingTimer(const int& duration);
+
+	// Anti-clockwise angle from 0-360
+	int get2DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index);
+	int get3DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index);
+	int get3DAngleABC(const std::vector<tdv::nuitrack::Joint>& joints, int a_index, int b_index, int c_index);
 };
 
 #endif /* NUITRACKGLSAMPLE_H_ */
