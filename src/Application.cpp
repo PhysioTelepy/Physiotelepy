@@ -50,10 +50,12 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
+	/*
 	const char* glsl_version = "#version 330";
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); //Todo: Set this to core and implement shaders at some point.
+	*/
 
 	GLFWwindow* window = glfwCreateWindow(outputMode.xres, outputMode.yres, "Physiotelepy", NULL, NULL);
 	if (!window)
@@ -71,6 +73,19 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 
+	// Setup OpenGL
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_TEXTURE_2D);
+
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_COLOR_ARRAY);
+
+
+	glOrtho(0, outputMode.xres, outputMode.yres, 0, -1.0, 1.0);
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+
 	glfwSwapInterval(0);
 
 	std::cout << glGetString(GL_VERSION) << std::endl;
@@ -80,7 +95,7 @@ int main(int argc, char* argv[])
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
 
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
-	ImGui_ImplOpenGL3_Init(glsl_version);
+	ImGui_ImplOpenGL3_Init();
 
 	bool showDemoWindow = false;
 	bool overrideJointColour = false;
@@ -117,7 +132,7 @@ int main(int argc, char* argv[])
 
 		{
 			ImGui::Begin("Record");
-			ImGui::SliderInt("Record duration", &recordDuration, 5, 60);
+			ImGui::InputInt("Number of Frames", &recordDuration);
 			if (ImGui::Button("Start recording"))
 			{
 				sample.startRecording(recordDuration);

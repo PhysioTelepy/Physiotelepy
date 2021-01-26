@@ -39,10 +39,8 @@ struct Vector3
 struct JointFrame 
 {
 	std::time_t timeStamp;
-	Vector2 joints[25];
 	Vector3 realJoints[25];
 	float confidence[25];
-	int angles[19];
 };
 
 // Main class of the sample
@@ -51,15 +49,19 @@ class NuitrackGL final
 public:
 	NuitrackGL();
 	~NuitrackGL();
-	
+
 	// Initialize sample: initialize Nuitrack, create all required modules,
 	// register callbacks and start Nuitrack
 	void init(const std::string& config = "");
-	
+
+	void onUserUpdateCallback(tdv::nuitrack::UserFrame::Ptr frame);
+
+	void onNewGesture(tdv::nuitrack::GestureData::Ptr gestureData);
+
 	// Update the depth map, tracking and gesture recognition data,
 	// then redraw the view
 	bool update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth, const bool& overrideJointColour);
-	
+
 	// Release all sample resources
 	void release();
 
@@ -88,33 +90,32 @@ private:
 
 	std::atomic<bool> replay;
 
+
+
 	int _width, _height;
 	// GL data
-	int skeletonColorUniformLocation = -1;
-	int pointSizeUniformLocation = -1;
-	int shaderProgram;
-	int shaderProgram2;
-	unsigned int VBO, VAO, EBO; // For textures
-	unsigned int VBO2, VAO2; // For lines
+
+	int num_frames_to_record = 0;
+
 	GLuint _textureID;
 	uint8_t* _textureBuffer;
 	GLfloat _textureCoords[8];
 	GLfloat _vertexes[8];
-	GLfloat _lines[72];
-	GLfloat _lines2[72];
-	int numLines = 0;
-	int numLines2 = 0;
+	std::vector<GLfloat> _lines;
 	bool hasAllJoints = false;
+
+	std::vector<tdv::nuitrack::Gesture> _userGestures;
 
 	tdv::nuitrack::OutputMode _outputMode;
 	tdv::nuitrack::DepthSensor::Ptr _depthSensor;
 	tdv::nuitrack::ColorSensor::Ptr _colorSensor;
 	tdv::nuitrack::UserTracker::Ptr _userTracker;
 	tdv::nuitrack::SkeletonTracker::Ptr _skeletonTracker;
-	
+	tdv::nuitrack::GestureRecognizer::Ptr _gestureRecognizer;
+
 	tdv::nuitrack::IssuesData::Ptr _issuesData;
 	uint64_t _onIssuesUpdateHandler;
-	
+
 	bool _isInitialized;
 
 	/**
@@ -125,7 +126,8 @@ private:
 	void onNewUserCallback(int id);
 	void onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons);
 	void onIssuesUpdate(tdv::nuitrack::IssuesData::Ptr issuesData);
-	
+	void onNewDepthFrame(tdv::nuitrack::DepthFrame::Ptr frame);
+
 	/**
 	 * Draw methods
 	 */
@@ -133,21 +135,14 @@ private:
 	void drawBone(const JointFrame& j1, int index1, int index2);
 	bool drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
 	void renderTexture();
-	void renderLinesUser(const float* skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& numLines, bool render, const bool& overrideJointColour);
+	void renderLinesUser();
 	void renderLinesTrainer(const float* skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& numLines, bool render, const bool& overrideJointColour);
 
+	int power2(int n);
+
 	void updateTrainerSkeleton();
-	
+
 	void initTexture(int width, int height);
-	void initLines();
-
-	void stopRecording();
-	void stopRecordingTimer(const int& duration);
-
-	// Anti-clockwise angle from 0-360
-	int get2DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index);
-	int get3DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index);
-	int get3DAngleABC(const std::vector<tdv::nuitrack::Joint>& joints, int a_index, int b_index, int c_index);
 };
 
 #endif /* NUITRACKGLSAMPLE_H_ */

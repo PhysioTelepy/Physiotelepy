@@ -17,7 +17,6 @@ NuitrackGL::NuitrackGL() :
 	_isInitialized(false)
 {
 	record.store(false);
-	saving.store(false);
 	replay.store(false);
 }
 
@@ -43,47 +42,6 @@ std::string toString(tdv::nuitrack::device::ActivationStatus status)
 	default: return "Unknown type";
 	}
 }
-
-/*
-* Shaders are written in GLSL. They are programs that run on the GPU.
-* They are responsible for converting raw data (vertices, indices and textures) into coloured pixels.
-* Read more about shaders and OpenGL pipeline at learnopengl.com
-*/
-const char* vertexShaderSource = "#version 330 core\n"
-"layout (location = 0) in vec3 aPos;\n"
-"layout (location = 1) in vec2 aTexCoord;\n"
-"out vec2 TexCoord;\n"
-"void main()\n"
-"{\n"
-"   gl_Position = vec4(aPos, 1.0);\n"
-"   TexCoord = aTexCoord;\n"
-"}\n\0";
-
-const char* fragmentShaderSource = "#version 330 core\n"
-"out vec4 FragColor;\n"
-"in vec2 TexCoord;\n"
-"uniform sampler2D ourTexture;\n"
-"void main()\n"
-"{\n"
-"   FragColor = texture(ourTexture, TexCoord);\n"
-"}\n\0";
-
-const char* vertexShaderSource2 = "#version 330 core\n"
-"uniform float pointSize;\n"
-"layout (location = 0) in vec2 aPos;\n"
-"void main()\n"
-"{\n"
-"   gl_Position = vec4(aPos, 1.0, 1.0);\n"
-"	gl_PointSize = pointSize;\n"
-"}\n\0";
-
-const char* fragmentShaderSource2 = "#version 330 core\n"
-"out vec4 FragColor;\n"
-"uniform vec4 color;\n"
-"void main()\n"
-"{\n"
-"   FragColor = color;\n"
-"}\n\0";
 
 void NuitrackGL::init(const std::string& config)
 {
@@ -137,21 +95,47 @@ void NuitrackGL::init(const std::string& config)
 
 	// colorsensor doesn not seem to work unless depth sensor is created
 	_depthSensor = tdv::nuitrack::DepthSensor::create();
+	_depthSensor->connectOnNewFrame(std::bind(&NuitrackGL::onNewDepthFrame, this, std::placeholders::_1));
+
 	_colorSensor = tdv::nuitrack::ColorSensor::create();
 	_colorSensor->connectOnNewFrame(std::bind(&NuitrackGL::onNewRGBFrame, this, std::placeholders::_1));
 
-	_outputMode = _colorSensor->getOutputMode();
+	_outputMode = _depthSensor->getOutputMode();
+	tdv::nuitrack::OutputMode colorOutputMode = _colorSensor->getOutputMode();
+	if (colorOutputMode.xres > _outputMode.xres)
+		_outputMode.xres = colorOutputMode.xres;
+	if (colorOutputMode.yres > _outputMode.yres)
+		_outputMode.yres = colorOutputMode.yres;
+
 	_width = _outputMode.xres;
 	_height = _outputMode.yres;
 
 	_userTracker = tdv::nuitrack::UserTracker::create();
+	_userTracker->connectOnUpdate(std::bind(&NuitrackGL::onUserUpdateCallback, this, std::placeholders::_1));
 	_userTracker->connectOnNewUser(std::bind(&NuitrackGL::onNewUserCallback, this, std::placeholders::_1));
 	_userTracker->connectOnLostUser(std::bind(&NuitrackGL::onLostUserCallback, this, std::placeholders::_1));
 
 	_skeletonTracker = tdv::nuitrack::SkeletonTracker::create();
 	_skeletonTracker->connectOnUpdate(std::bind(&NuitrackGL::onSkeletonUpdate, this, std::placeholders::_1));
 
+	_gestureRecognizer = tdv::nuitrack::GestureRecognizer::create();
+	_gestureRecognizer->connectOnNewGestures(std::bind(&NuitrackGL::onNewGesture, this, std::placeholders::_1));
+
 	_onIssuesUpdateHandler = tdv::nuitrack::Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGL::onIssuesUpdate, this, std::placeholders::_1));
+}
+
+void NuitrackGL::onUserUpdateCallback(tdv::nuitrack::UserFrame::Ptr frame) {
+
+}
+
+// Display information about gestures in the console
+void NuitrackGL::onNewGesture(tdv::nuitrack::GestureData::Ptr gestureData)
+{
+	_userGestures = gestureData->getGestures();
+	for (int i = 0; i < _userGestures.size(); ++i)
+	{
+		printf("Recognized %d from %d\n", _userGestures[i].type, _userGestures[i].userId);
+	}
 }
 
 bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth, const bool& overrideJointColour)
@@ -160,7 +144,6 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 	{
 		// Create texture by DepthSensor output mode
 		initTexture(_width, _height);
-		initLines();
 
 		// When Nuitrack modules are created, we need to call Nuitrack::run() to start processing all modules
 		try
@@ -193,35 +176,15 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
 		if (isReplay)
 			replayLoader.join();
-		// Set next frame here
 		
-		//Calculate Angle correctness
-		if (isReplay && hasAllJoints)
+		if (isReplay)
 		{
-
-			if (replayPointer % 30 == 0)
-			{
-				int correctness = 0;
-
-				for (int i = 0; i < 19; i++)
-				{
-					correctness += abs(userAngles[i] - readJointDataBuffer[replayPointer].angles[i]); // Manhattan distance 
-				}
-				std::cout << "Correctness result: " << correctness << std::endl;
-
-				if (correctness < CORRECTNESS_THRESHOLD)
-				{
-					replayPointer++;
-				}
-			}
-			else {
-				replayPointer++;
-			}
+			replayPointer++;
 		}
 
 		renderTexture();
-		renderLinesUser(skeletonColor, jointColor, pointSize, lineWidth, _lines, numLines, true, overrideJointColour);
-		renderLinesTrainer(skeletonColor, jointColor, pointSize, lineWidth, _lines2, numLines2, replay.load(), overrideJointColour);
+		renderLinesUser();
+		//renderLinesTrainer(skeletonColor, jointColor, pointSize, lineWidth, _lines2, numLines2, replay.load(), overrideJointColour);
 	}
 	catch (const tdv::nuitrack::LicenseNotAcquiredException& e)
 	{
@@ -237,6 +200,10 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 	}
 	
 	return true;
+}
+
+void onNewDepthFrame(tdv::nuitrack::DepthFrame::Ptr frame) {
+
 }
 
 void NuitrackGL::release()
@@ -272,7 +239,7 @@ void NuitrackGL::saveBufferToDisk()
 {
 	jointDataBufferMutex.lock();
 
-	DiskHelper::writeDataToDisk("test.txt", writeJointDataBuffer);
+	DiskHelper::writeDataToDisk("C:/dev/JointData/", writeJointDataBuffer);
 
 	jointDataBufferMutex.unlock();
 }
@@ -283,97 +250,6 @@ void NuitrackGL::playLoadedData()
 	replay.store(true);
 }
 
-void NuitrackGL::stopRecording()
-{
-	if (record.load() && !saving.load())
-	{
-		saving.store(true);
-		record.store(false);
-		// Start a thread that saves the data from the recorded buffer.
-		std::cout << "Saving data to disk" << std::endl;
-		std::thread writerThread (&NuitrackGL::saveBufferToDisk, this);
-		writerThread.join();
-		saving.store(false);
-		std::cout << "Data saved to disk" << std::endl << std::endl;
-	}
-	else 
-	{
-		std::cout << "Invalid operation" << std::endl;
-	}
-}
-
-void NuitrackGL::stopRecordingTimer(const int& duration)
-{
-	std::this_thread::sleep_for(std::chrono::seconds(duration));
-	std::cout << "Stopping recording" << std::endl;
-	stopRecording();
-}
-
-int NuitrackGL::get2DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index)
-{
-	const Vector2& a = jointFrame.joints[a_index];
-	const Vector2& b = jointFrame.joints[b_index];
-	const Vector2& c = jointFrame.joints[b_index];
-
-	Vector2 ab = { b.x - a.x, b.y - a.y };
-	Vector2 cb = { b.x - c.x, b.y - c.y };
-
-	float dot = (ab.x * cb.x + ab.y * cb.y);
-	float cross = (ab.x * cb.y - ab.y * cb.x);
-
-	float alpha = atan2(cross, dot);
-
-	int retVal = (int)floor(alpha * 180. / M_PI + 0.5);
-
-	if (retVal < 0)
-		retVal = 360 + retVal;
-
-	return retVal;
-}
-
-int NuitrackGL::get3DAngleABC(const JointFrame& jointFrame, int a_index, int b_index, int c_index)
-{
-	const Vector2& a = jointFrame.joints[a_index];
-	const Vector2& b = jointFrame.joints[b_index];
-	const Vector2& c = jointFrame.joints[b_index];
-
-	Vector2 ab = { b.x - a.x, b.y - a.y };
-	Vector2 cb = { b.x - c.x, b.y - c.y };
-
-	float dot = (ab.x * cb.x + ab.y * cb.y);
-	float cross = (ab.x * cb.y - ab.y * cb.x);
-
-	float alpha = atan2(cross, dot);
-
-	int retVal = (int)floor(alpha * 180. / M_PI + 0.5);
-
-	if (retVal < 0)
-		retVal = 360 + retVal;
-
-	return retVal;
-}
-
-int NuitrackGL::get3DAngleABC(const std::vector<tdv::nuitrack::Joint>& joints, int a_index, int b_index, int c_index)
-{
-	const tdv::nuitrack::Joint& a = joints[a_index];
-	const tdv::nuitrack::Joint& b = joints[b_index];
-	const tdv::nuitrack::Joint& c = joints[c_index];
-
-	Vector2 ab = { b.proj.x - a.proj.x, b.proj.y - a.proj.y };
-	Vector2 cb = { b.proj.x - c.proj.x, b.proj.y - c.proj.y };
-
-	float dot = (ab.x * cb.x + ab.y * cb.y);
-	float cross = (ab.x * cb.y - ab.y * cb.x);
-
-	float alpha = atan2(cross, dot);
-
-	int retVal = (int)floor(alpha * 180. / M_PI + 0.5);
-
-	if (retVal < 0)
-		retVal = 360 + retVal;
-
-	return retVal;
-}
 
 void NuitrackGL::startRecording(const int& duration)
 {
@@ -383,10 +259,9 @@ void NuitrackGL::startRecording(const int& duration)
 	}
 	else {
 		std::cout << std::endl << "Starting video recording" << std::endl;
+		num_frames_to_record = duration;
 		writeJointDataBuffer.clear();
 		record.store(true);
-		std::thread timerThread(&NuitrackGL::stopRecordingTimer, this, duration);
-		timerThread.detach();
 	}
 }
 
@@ -407,22 +282,18 @@ void NuitrackGL::onIssuesUpdate(tdv::nuitrack::IssuesData::Ptr issuesData)
 	_issuesData = issuesData;
 }
 
+void NuitrackGL::onNewDepthFrame(tdv::nuitrack::DepthFrame::Ptr frame)
+{
+}
+
 // Copy color frame data, received from Nuitrack, to texture to visualize
 void NuitrackGL::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 {
-	//std::thread::id this_id = std::this_thread::get_id();
-	//std::cout << "RGB update thread: " << this_id << std::endl;
-
-	// Storing from end of the buffer to start because frame data is received from top to bottom
-	// OpenGl requires texture data from the bottom to top.
-	// This will reverse the x-axis order of pixels too but it works out because image from a camera is mirrored.
-	uint8_t* texturePtr = _textureBuffer + (3 * _width * _height) - 1;
+	uint8_t* texturePtr = _textureBuffer;
 	const tdv::nuitrack::Color3* colorPtr = frame->getData();
 
 	float wStep = (float)_width / frame->getCols();
 	float hStep = (float)_height / frame->getRows();
-
-	//std::cout << "Output : " << frame->getCols() << std::endl << "Output rows: " << frame->getRows() << std::endl;
 
 	float nextVerticalBorder = hStep;
 
@@ -437,7 +308,7 @@ void NuitrackGL::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 		int col = 0;
 		float nextHorizontalBorder = wStep;
 
-		for (size_t j = 0; j < _width; ++j, texturePtr -= 3)
+		for (size_t j = 0; j < _width; ++j, texturePtr += 3)
 		{
 			if (j == (int)nextHorizontalBorder)
 			{
@@ -445,9 +316,9 @@ void NuitrackGL::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 				nextHorizontalBorder += wStep;
 			}
 
-			*(texturePtr - 2) = (colorPtr + col)->red;
-			*(texturePtr - 1) = (colorPtr + col)->green;
-			*(texturePtr - 0) = (colorPtr + col)->blue;
+			texturePtr[0] = (colorPtr + col)->red;
+			texturePtr[1] = (colorPtr + col)->green;
+			texturePtr[2] = (colorPtr + col)->blue;
 		}
 	}
 }
@@ -455,7 +326,7 @@ void NuitrackGL::onNewRGBFrame(tdv::nuitrack::RGBFrame::Ptr frame)
 // Prepare visualization of skeletons, received from Nuitrack
 void NuitrackGL::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons)
 {
-	numLines = 0;
+	_lines.clear();
 
 	auto skeletons = userSkeletons->getSkeletons();
 
@@ -511,134 +382,65 @@ void NuitrackGL::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 
 	hasAllJoints = hasJoints;
 
-	if (hasJoints) {
-		userAngles[0] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_ANKLE, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_HIP);
-		userAngles[1] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_ANKLE, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_HIP);
-		userAngles[2] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_RIGHT_HIP);
-		userAngles[3] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_WAIST);
-		userAngles[4] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_WAIST);
-		userAngles[5] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_TORSO);
-		userAngles[6] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_TORSO);
-		userAngles[7] = get3DAngleABC(joints, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_TORSO, tdv::nuitrack::JOINT_LEFT_COLLAR); // Joint left collar same as joint right collar
-		userAngles[8] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
-		userAngles[9] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
-		userAngles[10] = get3DAngleABC(joints, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER);
-		userAngles[11] = get3DAngleABC(joints, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER);
-		userAngles[12] = get3DAngleABC(joints, tdv::nuitrack::JOINT_HEAD, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR);
-		userAngles[13] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW);
-		userAngles[14] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW);
-		userAngles[15] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST);
-		userAngles[16] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST);
-		userAngles[17] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST, tdv::nuitrack::JOINT_LEFT_HAND);
-		userAngles[18] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST, tdv::nuitrack::JOINT_RIGHT_HAND);
-	}
-
 	std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-	if (record.load() && !saving.load() && hasJoints)
+	if (record.load())
 	{
-		if (jointDataBufferMutex.try_lock()) {
-			JointFrame frame;
+		if (writeJointDataBuffer.size() < num_frames_to_record) {
 
-			for (int i = 0; i < 25; i++)
-			{
-				frame.joints[i].x = joints[i].proj.x;
-				frame.joints[i].y = joints[i].proj.y;
-				frame.confidence[i] = joints[i].confidence;
-				frame.realJoints[i].x = joints[i].real.x;
-				frame.realJoints[i].y = joints[i].real.y;
-				frame.realJoints[i].z = joints[i].real.z;
-				
+			if (jointDataBufferMutex.try_lock()) {
+				JointFrame frame;
+
+				for (int i = 0; i < 25; i++)
+				{
+					frame.confidence[i] = joints[i].confidence;
+					frame.realJoints[i].x = joints[i].real.x;
+					frame.realJoints[i].y = joints[i].real.y;
+					frame.realJoints[i].z = joints[i].real.z;
+
+				}
+
+				frame.timeStamp = time;
+				writeJointDataBuffer.push_back(frame);
+				jointDataBufferMutex.unlock();
 			}
-
-			for (int i = 0; i < 19; i++)
+			else
 			{
-				frame.angles[i] = userAngles[i];
+				std::cout << "Locking failed" << std::endl;
 			}
-
-			frame.timeStamp = time;
-			writeJointDataBuffer.push_back(frame);
-			jointDataBufferMutex.unlock();
 		}
-		else
+		else 
 		{
-			std::cout << "Locking failed" << std::endl;
+			record.store(false);
+			std::thread writerThread(&NuitrackGL::saveBufferToDisk, this);
+			writerThread.detach();
+
 		}
 	}
-
-	
 }
 
 void NuitrackGL::updateTrainerSkeleton()
 {
-	numLines2 = 0;
-
-	const JointFrame& jf = readJointDataBuffer.at(replayPointer);
-
-	drawBone(jf, tdv::nuitrack::JOINT_HEAD, tdv::nuitrack::JOINT_NECK);
-	drawBone(jf, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER);
-	drawBone(jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_LEFT_HIP);
-	drawBone(jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_RIGHT_HIP);
-	drawBone(jf, tdv::nuitrack::JOINT_TORSO, tdv::nuitrack::JOINT_WAIST);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_WRIST, tdv::nuitrack::JOINT_LEFT_HAND);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_WRIST, tdv::nuitrack::JOINT_RIGHT_HAND);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_RIGHT_KNEE);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_LEFT_KNEE);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_ANKLE);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_ANKLE);
+	
 }
 
 void NuitrackGL::drawBone(const JointFrame& j1, int index1, int index2)
 {
-	if (j1.confidence[index1] > 0.15 && j1.confidence[index2] > 0.15)
-	{
-		_lines2[numLines2] = (-j1.joints[index1].x * 2) + 1;
-		_lines2[numLines2 + 1] = (-j1.joints[index1].y * 2) + 1;
-		_lines2[numLines2 + 2] = (-j1.joints[index2].x * 2) + 1;
-		_lines2[numLines2 + 3] = (-j1.joints[index2].y * 2) + 1;
-
-		numLines2 += 4;
-	}
+	
 }
 
 // Helper function to draw a skeleton bone
 bool NuitrackGL::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2)
 {
-	// Prepare line data for confident enough bones only
-
-	// Illustration of the projected coordinates w.r.t the window
-	//////////////////
-	//(1,0)	  (0, 0)//
-	//				//
-	//				//
-	//(1, 1)  (0, 1)//
-	//////////////////
-
-	// This implies that if a joint is at the top left of the window, 
-	// the projected coordinates for the joint will be ~ (1,0)
-	// OpenGl coordinate system in use is -1 to 1 for both x and y.
-	// That means that the top-left joint would be (-1, 1) in OpenGl.
-	// => X-axis 1 to 0 needs to be translated to -1 to 1
-	// => Y-axis 1 to 0 needs to be translated to -1 to 1
 
 	if (j1.confidence > 0.15 && j2.confidence > 0.15)
 	{
-		_lines[numLines] = (-j1.proj.x * 2) + 1;
-		_lines[numLines+1] = (-j1.proj.y * 2) + 1;
-		_lines[numLines+2] = (-j2.proj.x * 2) + 1;
-		_lines[numLines+3] = (-j2.proj.y * 2) + 1;
-
-		numLines += 4;
+		_lines.push_back(_width * j1.proj.x);
+		_lines.push_back(_height * j1.proj.y);
+		_lines.push_back(_width * j2.proj.x);
+		_lines.push_back(_height * j2.proj.y);
 		return true;
 	}
-	else 
-	{
+	else {
 		return false;
 	}
 }
@@ -646,295 +448,110 @@ bool NuitrackGL::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::J
 // Render prepared background texture
 void NuitrackGL::renderTexture()
 {
-	GLCall(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
-	GLCall(glClear(GL_COLOR_BUFFER_BIT));
-	
-	GLCall(glBindTexture(GL_TEXTURE_2D, _textureID));
-	// Todo: Look into using multiple texture buffers for performance
-	GLCall(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, _textureBuffer));
+	glClearColor(1, 1, 1, 1);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	GLCall(glBindVertexArray(VAO));
-	GLCall(glUseProgram(shaderProgram));
-	GLCall(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0));
-	
-	GLCall(glBindVertexArray(0));
+	glEnable(GL_TEXTURE_2D);
+	glColor4f(1, 1, 1, 1);
+
+	glBindTexture(GL_TEXTURE_2D, _textureID);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, _textureBuffer);
+
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
+	glVertexPointer(2, GL_FLOAT, 0, _vertexes);
+	glTexCoordPointer(2, GL_FLOAT, 0, _textureCoords);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+
+	glDisable(GL_TEXTURE_2D);
 }
 
-void NuitrackGL::renderLinesUser(const float* skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& size, bool render, const bool& overrideJointColour)
+void NuitrackGL::renderLinesUser()
 {
-	if (size == 0 || !render)
+	if (_lines.empty())
 		return;
 
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
-	// Todo: Look into using multiple buffers for performance
-	GLCall(glBufferSubData(GL_ARRAY_BUFFER, 0, size * sizeof(float), lines));
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
+	glEnableClientState(GL_VERTEX_ARRAY);
 
-	GLCall(glBindVertexArray(VAO2));
+	glColor4f(1, 1, 1, 1);
 
+	glLineWidth(6);
 
-	if (skeletonColorUniformLocation == -1)
-	{
-		GLCall(skeletonColorUniformLocation = glGetUniformLocation(shaderProgram2, "color"));
-	}
+	glVertexPointer(2, GL_FLOAT, 0, _lines.data());
+	glDrawArrays(GL_LINES, 0, _lines.size() / 2);
 
-	if (pointSizeUniformLocation == -1)
-	{
-		GLCall(pointSizeUniformLocation = glGetUniformLocation(shaderProgram2, "pointSize"));
-	}
-	GLCall(glUseProgram(shaderProgram2));
+	glLineWidth(1);
 
+	glEnable(GL_POINT_SMOOTH);
+	glPointSize(16);
 
-	if (overrideJointColour)
-	{
-		GLCall(glUniform4f(skeletonColorUniformLocation, skeletonColor[0], skeletonColor[1], skeletonColor[2], skeletonColor[3]));
-	}
-	else
-	{
-		if (hasAllJoints)
-		{
-			GLCall(glUniform4f(skeletonColorUniformLocation, 0.0f, 1.0f, 0.0f, 1.0f));
-		}
-		else
-		{
-			GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.0f, 0.0f, 1.0f));
-		}
-	}
+	glVertexPointer(2, GL_FLOAT, 0, _lines.data());
+	glDrawArrays(GL_POINTS, 0, _lines.size() / 2);
 
-	GLCall(glEnable(GL_LINE_SMOOTH));
-	GLCall(glLineWidth(lineWidth));
-	GLCall(glDrawArrays(GL_LINES, 0, size / 2));
-	GLCall(glLineWidth(1.0f));
-	GLCall(glDisable(GL_LINE_SMOOTH));
+	glColor4f(1, 1, 1, 1);
+	glPointSize(1);
+	glDisable(GL_POINT_SMOOTH);
 
-	if (overrideJointColour)
-	{
-		GLCall(glUniform4f(skeletonColorUniformLocation, jointColor[0], jointColor[1], jointColor[2], jointColor[3]));
-	}
-	else
-	{
-		if (hasAllJoints)
-		{
-			GLCall(glUniform4f(skeletonColorUniformLocation, 0.0f, 1.0f, 0.0f, 1.0f));
-		}
-		else
-		{
-			GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.0f, 0.0f, 1.0f));
-		}
-	}
-
-	GLCall(glEnable(GL_PROGRAM_POINT_SIZE));
-	GLCall(glUniform1f(pointSizeUniformLocation, pointSize));
-	GLCall(glDrawArrays(GL_POINTS, 0, size / 2));
-	GLCall(glDisable(GL_PROGRAM_POINT_SIZE));
-	GLCall(glBindVertexArray(0));
+	glDisableClientState(GL_VERTEX_ARRAY);
 }
 
 // Visualize bones, joints and hand positions
 void NuitrackGL::renderLinesTrainer(const float *skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& size, bool render, const bool& overrideJointColour)
 {
-	if (size == 0 || !render)
-		return;
-
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
-	// Todo: Look into using multiple buffers for performance
-	GLCall(glBufferSubData(GL_ARRAY_BUFFER, 0, size * sizeof(float), lines));
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
 	
-	GLCall(glBindVertexArray(VAO2));
-	
-	
-	if (skeletonColorUniformLocation == -1) 
-	{
-		GLCall(skeletonColorUniformLocation = glGetUniformLocation(shaderProgram2, "color"));
-	}
-
-	if (pointSizeUniformLocation == -1)
-	{
-		GLCall(pointSizeUniformLocation = glGetUniformLocation(shaderProgram2, "pointSize"));
-	}
-	GLCall(glUseProgram(shaderProgram2));
-
-	
-	if (overrideJointColour)
-	{
-		GLCall(glUniform4f(skeletonColorUniformLocation, skeletonColor[0], skeletonColor[1], skeletonColor[2], skeletonColor[3]));
-	}
-	else
-	{
-		GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.41f, 0.0f, 1.0f));
-	}
-	
-	GLCall(glEnable(GL_LINE_SMOOTH));
-	GLCall(glLineWidth(lineWidth));
-	GLCall(glDrawArrays(GL_LINES, 0, size / 2));
-	GLCall(glLineWidth(1.0f));
-	GLCall(glDisable(GL_LINE_SMOOTH));
-
-	if (overrideJointColour)
-	{
-		GLCall(glUniform4f(skeletonColorUniformLocation, jointColor[0], jointColor[1], jointColor[2], jointColor[3]));
-	}
-	else
-	{
-		GLCall(glUniform4f(skeletonColorUniformLocation, 1.0f, 0.41f, 0.0f, 1.0f));
-	}
-
-	GLCall(glEnable(GL_PROGRAM_POINT_SIZE));
-	GLCall(glUniform1f(pointSizeUniformLocation, pointSize));
-	GLCall(glDrawArrays(GL_POINTS, 0, size / 2));
-	GLCall(glDisable(GL_PROGRAM_POINT_SIZE));
-	GLCall(glBindVertexArray(0));
 }
 
-void NuitrackGL::initLines()
+int NuitrackGL::power2(int n)
 {
-	GLCall(int vertexShader = glCreateShader(GL_VERTEX_SHADER));
-	GLCall(glShaderSource(vertexShader, 1, &vertexShaderSource2, NULL));
-	GLCall(glCompileShader(vertexShader));
-	// check for shader compile errors
-	int success;
-	char infoLog[512];
-	GLCall(glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success));
-	if (!success)
-	{
-		GLCall(glGetShaderInfoLog(vertexShader, 512, NULL, infoLog));
-		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// fragment shader
-	GLCall(int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER));
-	GLCall(glShaderSource(fragmentShader, 1, &fragmentShaderSource2, NULL));
-	GLCall(glCompileShader(fragmentShader));
-	// check for shader compile errors
-	GLCall(glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success));
-	if (!success)
-	{
-		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// link shaders
-	shaderProgram2 = glCreateProgram();
-	GLCall(glAttachShader(shaderProgram2, vertexShader));
-	GLCall(glAttachShader(shaderProgram2, fragmentShader));
-	GLCall(glLinkProgram(shaderProgram2));
-	// check for linking errors
-	GLCall(glGetProgramiv(shaderProgram2, GL_LINK_STATUS, &success));
-	if (!success) {
-		glGetProgramInfoLog(shaderProgram2, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-	}
-	GLCall(glDeleteShader(vertexShader));
-	GLCall(glDeleteShader(fragmentShader));
+	unsigned int m = 2;
+	while (m < n)
+		m <<= 1;
 
-	GLCall(glGenVertexArrays(1, &VAO2));
-	GLCall(glGenBuffers(1, &VBO2));
-	
-	GLCall(glBindVertexArray(VAO2));
-	
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO2));
-	GLCall(glBufferData(GL_ARRAY_BUFFER, 72 * sizeof(float), 0, GL_DYNAMIC_DRAW));
-
-	GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0));
-	GLCall(glEnableVertexAttribArray(0));
-	
-	// These lines can be removed for the final versoin but are helpful while developing
-	GLCall(glBindVertexArray(0));
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
-	GLCall(glDisableVertexAttribArray(0));
+	return m;
 }
 
 void NuitrackGL::initTexture(int width, int height)
 {
-	GLCall(int vertexShader = glCreateShader(GL_VERTEX_SHADER));
-	GLCall(glShaderSource(vertexShader, 1, &vertexShaderSource, NULL));
-	GLCall(glCompileShader(vertexShader));
-	// check for shader compile errors
-	int success;
-	char infoLog[512];
-	GLCall(glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success));
-	if (!success)
-	{
-		GLCall(glGetShaderInfoLog(vertexShader, 512, NULL, infoLog));
-		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// fragment shader
-	GLCall(int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER));
-	GLCall(glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL));
-	GLCall(glCompileShader(fragmentShader));
-	// check for shader compile errors
-	GLCall(glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success));
-	if (!success)
-	{
-		GLCall(glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog));
-		std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// link shaders
-	GLCall(shaderProgram = glCreateProgram());
-	GLCall(glAttachShader(shaderProgram, vertexShader));
-	GLCall(glAttachShader(shaderProgram, fragmentShader));
-	GLCall(glLinkProgram(shaderProgram));
-	// check for linking errors
-	GLCall(glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success));
-	if (!success) {
-		GLCall(glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog));
-		std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-	}
-	GLCall(glDeleteShader(vertexShader));
-	GLCall(glDeleteShader(fragmentShader));
+	glGenTextures(1, &_textureID);
 
+	width = power2(width);
+	height = power2(height);
 
-	// Set texture coordinates [0, 1] and vertexes position
-	float vertices[] = {
-		// positions         // texture coords
-		1.0f,  1.0f, 0.0f,   1.0f, 1.0f,   // top right
-		1.0f, -1.0f, 0.0f,   1.0f, 0.0f,   // bottom right
-		-1.0f, -1.0f, 0.0f,  0.0f, 0.0f,   // bottom left
-		-1.0f,  1.0f, 0.0f,  0.0f, 1.0f    // top left 
-	};
-
-	unsigned int indices[] = {
-		0, 1, 3, //first triangle
-		1, 2, 3  //second triangle
-	};
-
-	GLCall(glGenVertexArrays(1, &VAO));
-	GLCall(glGenBuffers(1, &VBO));
-	GLCall(glGenBuffers(1, &EBO));
-	
-	GLCall(glBindVertexArray(VAO));
-	
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, VBO));
-	GLCall(glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW));
-	
-	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO));
-	GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW));
-	
-	// position attribute
-	GLCall(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0));
-	GLCall(glEnableVertexAttribArray(0));
-	// texture coord attribute
-	GLCall(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
-	GLCall(glEnableVertexAttribArray(1));
-	
 	if (_textureBuffer != 0)
 		delete[] _textureBuffer;
-	
+
 	_textureBuffer = new uint8_t[width * height * 3];
 	memset(_textureBuffer, 0, sizeof(uint8_t) * width * height * 3);
-	
-	GLCall(glGenTextures(1, &_textureID));
-	GLCall(glBindTexture(GL_TEXTURE_2D, _textureID));
-	
-	GLCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-	GLCall(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-	
-	// This line effectively does not allow resolution of texture to be changed.
-	GLCall(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL));	
-	
-	// These lines can be removed for the final versoin but are helpful while developing
-	GLCall(glBindVertexArray(0));
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, 0));
-	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
-	GLCall(glDisableVertexAttribArray(0));
-	GLCall(glDisableVertexAttribArray(1));
+
+	glBindTexture(GL_TEXTURE_2D, _textureID);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	// Set texture coordinates [0, 1] and vertexes position
+	{
+		_textureCoords[0] = (float)_width / width;
+		_textureCoords[1] = (float)_height / height;
+		_textureCoords[2] = (float)_width / width;
+		_textureCoords[3] = 0.0;
+		_textureCoords[4] = 0.0;
+		_textureCoords[5] = 0.0;
+		_textureCoords[6] = 0.0;
+		_textureCoords[7] = (float)_height / height;
+
+		_vertexes[0] = _width;
+		_vertexes[1] = _height;
+		_vertexes[2] = _width;
+		_vertexes[3] = 0.0;
+		_vertexes[4] = 0.0;
+		_vertexes[5] = 0.0;
+		_vertexes[6] = 0.0;
+		_vertexes[7] = _height;
+	}
 }

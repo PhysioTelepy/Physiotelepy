@@ -34,7 +34,7 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 		bool confidence = false;
 		bool x = false;
 		bool y = false;
-		bool angle = false;
+		bool z = false;
 
 		unsigned int p1 = 0;
 		unsigned int p2 = 0;
@@ -73,9 +73,9 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 				{
 					y = true;
 				}
-				else if (typeString.compare("Angle") == 0)
+				else if (typeString.compare("z") == 0)
 				{
-					angle = true;
+					z = true;
 				}
 				else {
 					std::cout << "Error when trying to read file" << std::endl;
@@ -115,19 +115,18 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 				else if (x)
 				{
 					x = false;
-					jointFrame.joints[index].x = std::stof(dataString);
+					jointFrame.realJoints[index].x = std::stof(dataString);
 				}
 				else if (y)
 				{
 					y = false;
-					jointFrame.joints[index].y = std::stof(dataString);
-					index++;
+					jointFrame.realJoints[index].y = std::stof(dataString);
 				}
-				else if (angle)
+				else if (z)
 				{
-					angle = false;
-					jointFrame.angles[index2] = std::stoi(dataString);
-					index2++;
+					z = false;
+					jointFrame.realJoints[index].z = std::stoi(dataString);
+					index++;
 				}
 				else {
 					std::cout << "Error when trying to read file" << std::endl;
@@ -147,6 +146,26 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 	std::cout << "File read into memory" << std::endl;
 }
 
+std::string gen_random(const int len) {
+
+	std::string tmp_s;
+	static const char alphanum[] =
+		"0123456789"
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		"abcdefghijklmnopqrstuvwxyz";
+
+	srand((unsigned)time(NULL) * getpid());
+
+	tmp_s.reserve(len);
+
+	for (int i = 0; i < len; ++i)
+		tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
+
+
+	return tmp_s;
+}
+
+
 void DiskHelper::writeDataToDisk(const std::string& path, const std::vector<JointFrame>& buffer)
 {
 	int size = 0;
@@ -155,15 +174,12 @@ void DiskHelper::writeDataToDisk(const std::string& path, const std::vector<Join
 
 	std::cout << "Size of the file is: " << size << " bytes" << std::endl;
 
-	std::ofstream file(path, std::ofstream::trunc);
+	std::ofstream file(path + gen_random(5) + ".txt", std::ofstream::trunc);
 	for (int j = 0; j < buffer.size(); j++)
 	{
 		file << "Time," << buffer[j].timeStamp << ",";
 		for (int i = 0; i < 25; i++)
-			file << "Type," << i << ",Confidence," << buffer[j].confidence[i] << ",x," << buffer[j].joints[i].x << ",y," << buffer[j].joints[i].y << ",";
-		
-		for (int i = 0; i < 19; i++)
-			file << "Angle," << buffer[j].angles[i] << ",";
+			file << "Type," << i << ",Confidence," << buffer[j].confidence[i] << ",x," << buffer[j].realJoints[i].x << ",y," << buffer[j].realJoints[i].y << ",z," << buffer[j].realJoints[i].z << ",";
 
 		file << std::endl;
 	}
