@@ -43,6 +43,7 @@ link_directories(
 set(SOURCES
     src/NuitrackGL.cpp
     src/Application.cpp
+    src/ApplicationState.h
     src/NuitrackGL.h
     src/UserInteraction.h
     src/UserInteraction.cpp
@@ -65,6 +66,10 @@ set(SOURCES
     src/imgui/imgui_impl_glfw.cpp
     src/imgui/imgui_impl_glfw.h
     src/glad/glad.c
+    src/sqlite3/shell.c
+    src/sqlite3/sqlite3.c
+    src/sqlite3/sqlite3.h
+    src/sqlite3/sqlite3ext.h
 )
     
 add_executable(${PROJECT_NAME} ${SOURCES})

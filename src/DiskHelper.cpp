@@ -35,6 +35,9 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 		bool x = false;
 		bool y = false;
 		bool z = false;
+		bool x_proj = false;
+		bool y_proj = false;
+		bool angle = false;
 
 		unsigned int p1 = 0;
 		unsigned int p2 = 0;
@@ -57,10 +60,6 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 				{
 					time = true;
 				}
-				else if (typeString.compare("Type") == 0)
-				{
-					type = true;
-				}
 				else if (typeString.compare("Confidence") == 0)
 				{
 					confidence = true;
@@ -76,6 +75,18 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 				else if (typeString.compare("z") == 0)
 				{
 					z = true;
+				}
+				else if (typeString.compare("x_proj") == 0)
+				{
+					x_proj = true;
+				}
+				else if (typeString.compare("y_proj") == 0)
+				{
+					y_proj = true;
+				}
+				else if (typeString.compare("Angle") == 0) 
+				{
+					angle = true;
 				}
 				else {
 					std::cout << "Error when trying to read file" << std::endl;
@@ -102,11 +113,6 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 					time = false;
 					jointFrame.timeStamp = std::stoi(dataString);
 				}
-				else if (type)
-				{
-					type = false;
-					// Ignore type
-				}
 				else if (confidence)
 				{
 					confidence = false;
@@ -125,7 +131,23 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 				else if (z)
 				{
 					z = false;
-					jointFrame.realJoints[index].z = std::stoi(dataString);
+					jointFrame.realJoints[index].z = std::stof(dataString);
+				}
+				else if (x_proj)
+				{
+					x_proj = false;
+					jointFrame.relativeJoints[index].x = std::stof(dataString);
+				}
+				else if (y_proj)
+				{
+					y_proj = false;
+					jointFrame.relativeJoints[index].y = std::stof(dataString);
+					jointFrame.relativeJoints[index].z = 0;
+				}
+				else if (angle)
+				{
+					angle = false;
+					jointFrame.angles[index] = std::stof(dataString);
 					index++;
 				}
 				else {
@@ -161,27 +183,40 @@ std::string gen_random(const int len) {
 	for (int i = 0; i < len; ++i)
 		tmp_s += alphanum[rand() % (sizeof(alphanum) - 1)];
 
-
 	return tmp_s;
 }
 
 
-void DiskHelper::writeDataToDisk(const std::string& path, const std::vector<JointFrame>& buffer)
+void DiskHelper::writeDataToDisk(std::string* path, const std::vector<JointFrame>& buffer)
 {
+
 	int size = 0;
 	size += sizeof(std::time_t) * buffer.size();
 	size += sizeof(Vector2) * 25 * buffer.size();
 
 	std::cout << "Size of the file is: " << size << " bytes" << std::endl;
 
-	std::ofstream file(path + gen_random(5) + ".txt", std::ofstream::trunc);
+	std::string salt_path = "C:/dev/JointData/" + gen_random(10) + ".txt";
+
+	*path = salt_path;
+
+	std::ofstream file(salt_path, std::ofstream::trunc);
+	
+
 	for (int j = 0; j < buffer.size(); j++)
 	{
 		file << "Time," << buffer[j].timeStamp << ",";
-		for (int i = 0; i < 25; i++)
-			file << "Type," << i << ",Confidence," << buffer[j].confidence[i] << ",x," << buffer[j].realJoints[i].x << ",y," << buffer[j].realJoints[i].y << ",z," << buffer[j].realJoints[i].z << ",";
+
+		for (int i = 0; i < 25; i++) {
+			file << "Confidence," << buffer[j].confidence[i] << ",x," << buffer[j].realJoints[i].x << ",y," << buffer[j].realJoints[i].y << ",z," << buffer[j].realJoints[i].z << ",";
+			file << "x_proj," << buffer[j].relativeJoints[i].x << ",y_proj," << buffer[j].relativeJoints[i].y << ",";
+			file << "Angle," << buffer[j].angles[i] << ",";
+		}
 
 		file << std::endl;
 	}
+
 	file.close();
+
+	std::cout << "File written to disk at: " << *path << std::endl;
 }

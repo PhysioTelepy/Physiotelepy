@@ -40,6 +40,8 @@ struct JointFrame
 {
 	std::time_t timeStamp;
 	Vector3 realJoints[25];
+	Vector3 relativeJoints[25];
+	float angles[25];
 	float confidence[25];
 };
 
@@ -65,15 +67,17 @@ public:
 	// Release all sample resources
 	void release();
 
+	void clearBuffer(const std::string& path);
+
 	tdv::nuitrack::OutputMode getOutputMode() const
 	{
 		return _outputMode;
 	}
 
 	// Record skeleton data for a duration in seconds
-	void startRecording(const int& duration);
+	void startRecording(const int& duration, std::string& path, bool &recordingComplete);
 	void loadDataToBuffer(const std::string& path);
-	void saveBufferToDisk();
+	void saveBufferToDisk(std::string *path);
 	void playLoadedData();
 
 private:
@@ -86,16 +90,16 @@ private:
 	int replayPointer = 0;
 
 	std::atomic<bool> record;
-	std::atomic<bool> saving;
-
 	std::atomic<bool> replay;
+	std::atomic<bool> loaded;
 
 
-
-	int _width, _height;
+	float _width, _height;
 	// GL data
 
-	int num_frames_to_record = 0;
+	time_t recordTill = 0;
+	std::string* storePath = 0;
+	bool *recordingComplete = 0;
 
 	GLuint _textureID;
 	uint8_t* _textureBuffer;
@@ -118,6 +122,8 @@ private:
 
 	bool _isInitialized;
 
+	int get3DAngleABC(const std::vector<tdv::nuitrack::Joint>& joints, int a_index, int b_index, int c_index);
+
 	/**
 	 * Nuitrack callbacks
 	 */
@@ -132,7 +138,7 @@ private:
 	 * Draw methods
 	 */
 	void drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints);
-	void drawBone(const JointFrame& j1, int index1, int index2);
+	bool drawBone(const JointFrame& j1, int index1, int index2);
 	bool drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
 	void renderTexture();
 	void renderLinesUser();
@@ -143,6 +149,7 @@ private:
 	void updateTrainerSkeleton();
 
 	void initTexture(int width, int height);
+	void loadDiskToBuffer(const std::string& path);
 };
 
 #endif /* NUITRACKGLSAMPLE_H_ */
