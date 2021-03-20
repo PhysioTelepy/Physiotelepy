@@ -7,6 +7,7 @@
 #include <ctime>
 #include <chrono>
 
+
 typedef enum
 {
 	DEPTH_SEGMENT_MODE = 0,
@@ -38,12 +39,20 @@ struct Vector3
 // Maybe add a sample rate (10 times /second or something?)
 struct JointFrame 
 {
+	int requiredJoints;
 	std::time_t timeStamp;
 	Vector3 realJoints[25];
 	Vector3 relativeJoints[25];
 	float angles[25];
 	float confidence[25];
 };
+
+typedef enum {
+	UPPER,
+	LOWER,
+	FULL, 
+	UNDEFINED
+} ExerciseType;
 
 // Main class of the sample
 class NuitrackGL final
@@ -75,37 +84,56 @@ public:
 	}
 
 	// Record skeleton data for a duration in seconds
-	void startRecording(const int& duration, std::string& path, bool &recordingComplete);
-	void loadDataToBuffer(const std::string& path);
+	void startRecording(const int& duration, std::string& path, bool &recordingComplete, int requiredJoints);
+	void loadDiskToBuffer(const std::string& path);
 	void saveBufferToDisk(std::string *path);
-	void playLoadedData();
+	void replayRecording(bool& replayComplete);
+
+	void analyzeLoadedData(bool &analysisComplete, std::string &analysis);
+	void replayLoadedData(bool& analysisComplete);
+	void displayVideo(bool display, bool joints);
 
 private:
-	int userAngles[19];
+	bool showVideo = false;
+	bool showJoints = false;
 
-	std::mutex jointDataBufferMutex;
+	int userAngles[19];
+	int requiredJoints = 0;
+
+	ExerciseType exerciseType = UNDEFINED;
 
 	std::vector<JointFrame> writeJointDataBuffer;
 	std::vector<JointFrame> readJointDataBuffer;
+
 	int replayPointer = 0;
+	int recordingReplayPointer = 0;
+	int analysisPointer = 0;
 
-	std::atomic<bool> record;
-	std::atomic<bool> replay;
+	std::atomic<bool> loadedBufferReplay;
+	std::atomic<bool> recordingReplay;
+	std::atomic<bool> loadedBufferAnalysis;
+
 	std::atomic<bool> loaded;
-
+	std::atomic<bool> record;
 
 	float _width, _height;
 	// GL data
 
 	time_t recordTill = 0;
 	std::string* storePath = 0;
+
 	bool *recordingComplete = 0;
+	bool *recordingReplayComplete = 0;
+	bool* analysisComplete = 0;
+	bool* replayComplete = 0;
 
 	GLuint _textureID;
 	uint8_t* _textureBuffer;
+	uint8_t* emptyTextureBuffer;
 	GLfloat _textureCoords[8];
 	GLfloat _vertexes[8];
 	std::vector<GLfloat> _lines;
+	std::vector<GLfloat> _recordingLines;
 	bool hasAllJoints = false;
 
 	std::vector<tdv::nuitrack::Gesture> _userGestures;
@@ -138,18 +166,19 @@ private:
 	 * Draw methods
 	 */
 	void drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints);
-	bool drawBone(const JointFrame& j1, int index1, int index2);
-	bool drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
+	void drawBone(const JointFrame& j1, int index1, int index2);
+	void drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
 	void renderTexture();
-	void renderLinesUser();
-	void renderLinesTrainer(const float* skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& numLines, bool render, const bool& overrideJointColour);
+	void renderLines(std::vector<GLfloat>& lines, int lineWidth, int pointSize, Vector3 colour);
 
 	int power2(int n);
 
 	void updateTrainerSkeleton();
 
+	bool isValidJoint(const tdv::nuitrack::Joint& j1);
+
 	void initTexture(int width, int height);
-	void loadDiskToBuffer(const std::string& path);
+	
 };
 
 #endif /* NUITRACKGLSAMPLE_H_ */

@@ -1,5 +1,7 @@
 #define M_PI 3.14159265358979323846
-#define CORRECTNESS_THRESHOLD 80
+#define CORRECTNESS_THRESHOLD_UPPER 40
+#define CORRECTNESS_THRESHOLD_LOWER 30
+#define CORRECTNESS_THRESHOLD_FULL 60
 
 #include "NuitrackGL.h"
 
@@ -17,7 +19,8 @@ NuitrackGL::NuitrackGL() :
 	_isInitialized(false)
 {
 	record.store(false);
-	replay.store(false);
+	loadedBufferReplay.store(false);
+	recordingReplay.store(false);
 	loaded.store(false);
 }
 
@@ -37,10 +40,10 @@ std::string toString(tdv::nuitrack::device::ActivationStatus status)
 {
 	switch (status)
 	{
-	case tdv::nuitrack::device::ActivationStatus::NONE: return "None";
-	case tdv::nuitrack::device::ActivationStatus::TRIAL: return "Trial";
-	case tdv::nuitrack::device::ActivationStatus::PRO: return "Pro";
-	default: return "Unknown type";
+		case tdv::nuitrack::device::ActivationStatus::NONE: return "None";
+		case tdv::nuitrack::device::ActivationStatus::TRIAL: return "Trial";
+		case tdv::nuitrack::device::ActivationStatus::PRO: return "Pro";
+		default: return "Unknown type";
 	}
 }
 
@@ -96,6 +99,12 @@ void NuitrackGL::init(const std::string& config)
 	_onIssuesUpdateHandler = tdv::nuitrack::Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGL::onIssuesUpdate, this, std::placeholders::_1));
 }
 
+void NuitrackGL::displayVideo(bool display, bool joints)
+{
+	showVideo = display;
+	showJoints = joints;
+}
+
 void NuitrackGL::onUserUpdateCallback(tdv::nuitrack::UserFrame::Ptr frame) {
 
 }
@@ -132,43 +141,153 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 	}
 	try
 	{
+		_lines.clear();
+		_recordingLines.clear();
 		std::thread replayLoader;
+
 		bool isReplay = false;
-		if (replay.load())
+		if (loadedBufferReplay.load())
 		{
 			if (replayPointer < readJointDataBuffer.size())
 			{
-				isReplay = true;
 				replayLoader = std::thread(&NuitrackGL::updateTrainerSkeleton, this);
+				isReplay = true;
 			}
-			else {
-				replay.store(false);
+			else 
+			{
+				*replayComplete = true;
+				loadedBufferReplay.store(false);
 			}
 		}
 
-		_lines.clear();
+		else if (recordingReplay.load())
+		{
+			if (recordingReplayPointer < writeJointDataBuffer.size())
+			{
+				replayLoader = std::thread(&NuitrackGL::updateTrainerSkeleton, this);
+				isReplay = true;
+			}
+			else
+			{
+				*recordingReplayComplete = true;
+				recordingReplay.store(false);
+			}
+		}
+
+		else if (loadedBufferAnalysis.load())
+		{
+			if (analysisPointer < readJointDataBuffer.size())
+			{
+				replayLoader = std::thread(&NuitrackGL::updateTrainerSkeleton, this);
+				isReplay = true;
+			}
+			else
+			{
+				*analysisComplete = true;
+				loadedBufferAnalysis.store(false);
+			}
+		}
+
+		hasAllJoints = false;
 
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
 		if (isReplay)
 			replayLoader.join();
-		
+
 		if (isReplay)
 		{
-			replayPointer++;
+			if (loadedBufferReplay.load())
+			{
+				replayPointer++;
+			}
+			else if (recordingReplay.load())
+			{
+				recordingReplayPointer++;
+			}
+			else if (loadedBufferAnalysis.load())
+			{
+				if (analysisPointer % 30 == 0)
+				{
+					// Assume recording has all the required joints.
+					// Check if user joints has all the required joints
+					// If yes check angle
+
+					if (hasAllJoints) {
+						if (exerciseType == UPPER)
+						{
+							float angleCorrectness = 0.0f;
+							for (int i = 7; i < 17; i++)
+							{
+								angleCorrectness += pow(userAngles[i] - readJointDataBuffer.at(analysisPointer).angles[i], 2);
+							}
+							angleCorrectness = sqrt(angleCorrectness);
+
+							if (angleCorrectness < CORRECTNESS_THRESHOLD_UPPER)
+							{
+								analysisPointer++;
+							}
+
+							std::cout << angleCorrectness << std::endl;
+						}
+						else if (exerciseType == LOWER)
+						{
+							float angleCorrectness = 0;
+							for (int i = 0; i < 7; i++)
+							{
+								angleCorrectness += pow(userAngles[i] - readJointDataBuffer.at(analysisPointer).angles[i], 2);
+							}
+							angleCorrectness = sqrt(angleCorrectness);
+
+							if (angleCorrectness < CORRECTNESS_THRESHOLD_LOWER)
+							{
+								analysisPointer++;
+							}
+						}
+						else if (exerciseType == FULL)
+						{
+							float angleCorrectness = 0;
+							for (int i = 0; i < 17; i++)
+							{
+								angleCorrectness += pow(userAngles[i] - readJointDataBuffer.at(analysisPointer).angles[i], 2);
+							}
+							angleCorrectness = sqrt(angleCorrectness);
+
+							if (angleCorrectness < CORRECTNESS_THRESHOLD_FULL)
+							{
+								analysisPointer++;
+							}
+						}
+					}
+				}
+				else
+				{
+					analysisPointer++;
+				}
+			}
 		}
 
+		Vector3 col;
+		col.x = 1.0f;
+		col.y = 1.0f;
+		col.y = 1.0f;
 		renderTexture();
-		renderLinesUser();
+		renderLines(_lines, 6, 16, col);
+		if (isReplay)
+		{
+			col.x = 1.0f;
+			col.y = 0.0f;
+			col.z = 0.0f;
+			renderLines(_recordingLines, 6, 16, col);
+		}
+		
 
 		std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
 		if (record.load() && now > recordTill)
 		{
 			record.store(false);
-			std::thread writerThread(&NuitrackGL::saveBufferToDisk, this, storePath);
+			saveBufferToDisk(storePath);
 			*recordingComplete = true;
-			writerThread.detach();
-
 		}
 	}
 	catch (const tdv::nuitrack::LicenseNotAcquiredException& e)
@@ -211,6 +330,7 @@ void NuitrackGL::release()
 	if (_textureBuffer)
 	{
 		delete[] _textureBuffer;
+		delete[] emptyTextureBuffer;
 		_textureBuffer = 0;
 	}
 }
@@ -219,14 +339,6 @@ void NuitrackGL::clearBuffer(const std::string& path)
 {
 	writeJointDataBuffer.clear();
 	loaded.store(false);
-}
-
-
-void NuitrackGL::loadDataToBuffer(const std::string& path)
-{
-	
-	std::thread writerThread(&NuitrackGL::loadDiskToBuffer, this, path);
-	writerThread.detach();
 }
 
 void::NuitrackGL::loadDiskToBuffer(const std::string & path)
@@ -238,33 +350,84 @@ void::NuitrackGL::loadDiskToBuffer(const std::string & path)
 
 void NuitrackGL::saveBufferToDisk(std::string *path)
 {
-	jointDataBufferMutex.lock();
-
 	DiskHelper::writeDataToDisk(path, writeJointDataBuffer);
-
-	jointDataBufferMutex.unlock();
 }
 
-void NuitrackGL::playLoadedData()
+void NuitrackGL::replayRecording(bool& complete)
 {
-	if (loaded.load())
+	if (!record.load() && !loadedBufferReplay.load() && !loadedBufferAnalysis.load())
+	{
+		recordingReplayPointer = 0;
+		recordingReplay.store(true);
+		recordingReplayComplete = &complete;
+	}
+}
+
+void NuitrackGL::analyzeLoadedData(bool &complete, std::string &analysis)
+{
+	if (loaded.load() && !record.load() && !loadedBufferReplay.load())
+	{
+		analysisPointer = 0;
+		loadedBufferAnalysis.store(true);
+		analysisComplete = &complete;
+		int type = readJointDataBuffer.at(0).requiredJoints;
+
+		if (type == 0)
+		{
+			exerciseType = UNDEFINED;
+		}
+		else if (type == 1)
+		{
+			exerciseType = UPPER;
+		}
+		else if (type == 2)
+		{
+			exerciseType = LOWER;
+		}
+		else if (type == 3)
+		{
+			exerciseType = FULL;
+		}
+	}
+}
+
+void NuitrackGL::replayLoadedData(bool& complete)
+{
+	if (loaded.load() && !record.load() && !loadedBufferAnalysis.load())
 	{
 		replayPointer = 0;
-		replay.store(true);
+		loadedBufferReplay.store(true);
+		replayComplete = &complete;
 	}
 }
 
 
-void NuitrackGL::startRecording(const int &duration, std::string &path, bool &finishedRecording)
+void NuitrackGL::startRecording(const int &duration, std::string &path, bool &finishedRecording, int requiredJoints)
 {
 	std::cout << "Starting recording" << std::endl;
 	std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 	recordTill = now + duration;
 	record.store(true);
-
 	storePath = &path;
 	recordingComplete = &finishedRecording;
 	writeJointDataBuffer.clear();
+
+	if (requiredJoints == 0)
+	{
+		exerciseType = UNDEFINED;
+	}
+	else if (requiredJoints == 1)
+	{
+		exerciseType = UPPER;
+	}
+	else if (requiredJoints == 2)
+	{
+		exerciseType = LOWER;
+	}
+	else if (requiredJoints == 3)
+	{
+		exerciseType = FULL;
+	}
 }
 
 // Callback for onLostUser event
@@ -350,7 +513,6 @@ void NuitrackGL::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons
 {
 	auto skeletons = userSkeletons->getSkeletons();
 
-
 	for (tdv::nuitrack::Skeleton skeleton: skeletons)
 	{
 		drawSkeleton(skeleton.joints);
@@ -360,48 +522,77 @@ void NuitrackGL::onSkeletonUpdate(tdv::nuitrack::SkeletonData::Ptr userSkeletons
 // Helper function to draw skeleton from Nuitrack data
 void NuitrackGL::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 {
-	bool hasJoints = true;
+	hasAllJoints = true;
 
-	// We need to draw a bone for every pair of neighbour joints
-	if (!drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_NECK], joints[tdv::nuitrack::JOINT_LEFT_COLLAR]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_TORSO]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_LEFT_SHOULDER]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_LEFT_HIP]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_RIGHT_HIP]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_TORSO], joints[tdv::nuitrack::JOINT_WAIST]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER], joints[tdv::nuitrack::JOINT_LEFT_ELBOW]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_ELBOW], joints[tdv::nuitrack::JOINT_LEFT_WRIST]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_WRIST], joints[tdv::nuitrack::JOINT_LEFT_HAND]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER], joints[tdv::nuitrack::JOINT_RIGHT_ELBOW]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW], joints[tdv::nuitrack::JOINT_RIGHT_WRIST]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_WRIST], joints[tdv::nuitrack::JOINT_RIGHT_HAND]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_HIP], joints[tdv::nuitrack::JOINT_RIGHT_KNEE]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_HIP], joints[tdv::nuitrack::JOINT_LEFT_KNEE]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_RIGHT_KNEE], joints[tdv::nuitrack::JOINT_RIGHT_ANKLE]))
-		hasJoints = false;
-	if (!drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]))
-		hasJoints = false;
+	if (exerciseType == UNDEFINED) // Any
+	{
+		hasAllJoints = false;
+	}
+	else  if (exerciseType == UPPER) // Upper body
+	{
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_HEAD])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_NECK])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_COLLAR])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_ELBOW])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_WRIST])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_WRIST])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_TORSO])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_WAIST])) hasAllJoints = false;
+	}
+	else if (exerciseType == LOWER) // Lower body
+	{
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_TORSO])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_WAIST])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_HIP])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_HIP])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_KNEE])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_KNEE])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_ANKLE])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_ANKLE])) hasAllJoints = false;
+	}
+	else if (exerciseType == FULL) // Full body
+	{
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_HEAD])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_NECK])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_COLLAR])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_ELBOW])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_WRIST])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_WRIST])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_TORSO])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_WAIST])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_HIP])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_HIP])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_KNEE])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_KNEE])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_RIGHT_ANKLE])) hasAllJoints = false;
+		if (!isValidJoint(joints[tdv::nuitrack::JOINT_LEFT_ANKLE])) hasAllJoints = false;
+	}
 
-	hasAllJoints = hasJoints;
-
+	drawBone(joints[tdv::nuitrack::JOINT_HEAD], joints[tdv::nuitrack::JOINT_NECK]);
+	drawBone(joints[tdv::nuitrack::JOINT_NECK], joints[tdv::nuitrack::JOINT_LEFT_COLLAR]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_TORSO]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_LEFT_SHOULDER]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_COLLAR], joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER]);
+	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_LEFT_HIP]);
+	drawBone(joints[tdv::nuitrack::JOINT_WAIST], joints[tdv::nuitrack::JOINT_RIGHT_HIP]);
+	drawBone(joints[tdv::nuitrack::JOINT_TORSO], joints[tdv::nuitrack::JOINT_WAIST]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_SHOULDER], joints[tdv::nuitrack::JOINT_LEFT_ELBOW]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_ELBOW], joints[tdv::nuitrack::JOINT_LEFT_WRIST]);
+	//drawBone(joints[tdv::nuitrack::JOINT_LEFT_WRIST], joints[tdv::nuitrack::JOINT_LEFT_HAND]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_SHOULDER], joints[tdv::nuitrack::JOINT_RIGHT_ELBOW]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_ELBOW], joints[tdv::nuitrack::JOINT_RIGHT_WRIST]);
+	//drawBone(joints[tdv::nuitrack::JOINT_RIGHT_WRIST], joints[tdv::nuitrack::JOINT_RIGHT_HAND]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_HIP], joints[tdv::nuitrack::JOINT_RIGHT_KNEE]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_HIP], joints[tdv::nuitrack::JOINT_LEFT_KNEE]);
+	drawBone(joints[tdv::nuitrack::JOINT_RIGHT_KNEE], joints[tdv::nuitrack::JOINT_RIGHT_ANKLE]);
+	drawBone(joints[tdv::nuitrack::JOINT_LEFT_KNEE], joints[tdv::nuitrack::JOINT_LEFT_ANKLE]);
+		
 	if (hasAllJoints) {
 		userAngles[0] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_ANKLE, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_HIP);
 		userAngles[1] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_ANKLE, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_HIP);
@@ -420,111 +611,132 @@ void NuitrackGL::drawSkeleton(const std::vector<tdv::nuitrack::Joint>& joints)
 		userAngles[14] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW);
 		userAngles[15] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST);
 		userAngles[16] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST);
-		userAngles[17] = get3DAngleABC(joints, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST, tdv::nuitrack::JOINT_LEFT_HAND);
-		userAngles[18] = get3DAngleABC(joints, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST, tdv::nuitrack::JOINT_RIGHT_HAND);
 	}
+	
 
 	std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-	if (record.load())
+	if (record.load() && hasAllJoints) // Only recording if all the required joints are present
 	{
-		if (jointDataBufferMutex.try_lock()) {
-			JointFrame frame;
+		JointFrame frame;
 
-			for (int i = 0; i < 25; i++)
-			{
-				frame.confidence[i] = joints[i].confidence;
-				frame.realJoints[i].x = joints[i].real.x;
-				frame.realJoints[i].y = joints[i].real.y;
-				frame.realJoints[i].z = joints[i].real.z;
-				frame.relativeJoints[i].x = joints[i].proj.x;
-				frame.relativeJoints[i].y = joints[i].proj.y;
-				frame.relativeJoints[i].z = joints[i].proj.z;
-			}
-
-			for (int i = 0; i < 19; i++) {
-				frame.angles[i] = userAngles[i];
-			}
-
-			frame.timeStamp = time;
-			writeJointDataBuffer.push_back(frame);
-			jointDataBufferMutex.unlock();
-		}
-		else
+		if (exerciseType == UPPER)
 		{
-			std::cout << "Locking failed" << std::endl;
+			frame.requiredJoints = 1;
 		}
+		else if (exerciseType == LOWER) 
+		{
+			frame.requiredJoints = 2;
+		}
+		else if (exerciseType == FULL)
+		{
+			frame.requiredJoints = 3;
+		}
+		else if (exerciseType == UNDEFINED)
+		{
+			frame.requiredJoints = 0;
+		}
+		
+
+		for (int i = 0; i < 25; i++)
+		{
+			frame.confidence[i] = joints[i].confidence;
+			frame.realJoints[i].x = joints[i].real.x;
+			frame.realJoints[i].y = joints[i].real.y;
+			frame.realJoints[i].z = joints[i].real.z;
+			frame.relativeJoints[i].x = joints[i].proj.x;
+			frame.relativeJoints[i].y = joints[i].proj.y;
+			frame.relativeJoints[i].z = joints[i].proj.z;
+		}
+
+		for (int i = 0; i < 19; i++) {
+			frame.angles[i] = userAngles[i];
+		}
+
+		frame.timeStamp = time;
+		writeJointDataBuffer.push_back(frame);
 	}
 }
 
 void NuitrackGL::updateTrainerSkeleton()
 {
-	const JointFrame& jf = readJointDataBuffer.at(replayPointer);
-
-	drawBone(jf, tdv::nuitrack::JOINT_HEAD, tdv::nuitrack::JOINT_NECK);
-	drawBone(jf, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER);
-	drawBone(jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_LEFT_HIP);
-	drawBone(jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_RIGHT_HIP);
-	drawBone(jf, tdv::nuitrack::JOINT_TORSO, tdv::nuitrack::JOINT_WAIST);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_WRIST, tdv::nuitrack::JOINT_LEFT_HAND);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_WRIST, tdv::nuitrack::JOINT_RIGHT_HAND);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_RIGHT_KNEE);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_LEFT_KNEE);
-	drawBone(jf, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_ANKLE);
-	drawBone(jf, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_ANKLE);
+	JointFrame* jf = 0;
+	if (loadedBufferReplay.load())
+	{
+		jf = &readJointDataBuffer.at(replayPointer);
+	}
+	else if (loadedBufferAnalysis.load())
+	{
+		jf = &readJointDataBuffer.at(analysisPointer);
+	}
+	else if (recordingReplay.load())
+	{
+		jf = &writeJointDataBuffer.at(recordingReplayPointer);
+	}
+	else
+	{
+		return;
+	}
+	
+	drawBone(*jf, tdv::nuitrack::JOINT_HEAD, tdv::nuitrack::JOINT_NECK);
+	drawBone(*jf, tdv::nuitrack::JOINT_NECK, tdv::nuitrack::JOINT_LEFT_COLLAR);
+	drawBone(*jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_RIGHT_SHOULDER);
+	drawBone(*jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_LEFT_SHOULDER);
+	drawBone(*jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_LEFT_HIP);
+	drawBone(*jf, tdv::nuitrack::JOINT_WAIST, tdv::nuitrack::JOINT_RIGHT_HIP);
+	drawBone(*jf, tdv::nuitrack::JOINT_TORSO, tdv::nuitrack::JOINT_WAIST);
+	drawBone(*jf, tdv::nuitrack::JOINT_LEFT_COLLAR, tdv::nuitrack::JOINT_TORSO);
+	drawBone(*jf, tdv::nuitrack::JOINT_LEFT_SHOULDER, tdv::nuitrack::JOINT_LEFT_ELBOW);
+	drawBone(*jf, tdv::nuitrack::JOINT_LEFT_ELBOW, tdv::nuitrack::JOINT_LEFT_WRIST);
+	//drawBone(*jf, tdv::nuitrack::JOINT_LEFT_WRIST, tdv::nuitrack::JOINT_LEFT_HAND);
+	drawBone(*jf, tdv::nuitrack::JOINT_RIGHT_SHOULDER, tdv::nuitrack::JOINT_RIGHT_ELBOW);
+	drawBone(*jf, tdv::nuitrack::JOINT_RIGHT_ELBOW, tdv::nuitrack::JOINT_RIGHT_WRIST);
+	//drawBone(*jf, tdv::nuitrack::JOINT_RIGHT_WRIST, tdv::nuitrack::JOINT_RIGHT_HAND);
+	drawBone(*jf, tdv::nuitrack::JOINT_RIGHT_HIP, tdv::nuitrack::JOINT_RIGHT_KNEE);
+	drawBone(*jf, tdv::nuitrack::JOINT_LEFT_HIP, tdv::nuitrack::JOINT_LEFT_KNEE);
+	drawBone(*jf, tdv::nuitrack::JOINT_RIGHT_KNEE, tdv::nuitrack::JOINT_RIGHT_ANKLE);
+	drawBone(*jf, tdv::nuitrack::JOINT_LEFT_KNEE, tdv::nuitrack::JOINT_LEFT_ANKLE);
 }
 
-bool NuitrackGL::drawBone(const JointFrame& j1, int index1, int index2)
+bool NuitrackGL::isValidJoint(const tdv::nuitrack::Joint& j1)
+{
+	if (j1.confidence > 0.15 && j1.proj.x > 0 && j1.proj.y > 0 && j1.proj.x < 1 && j1.proj.y < 1)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+void NuitrackGL::drawBone(const JointFrame& j1, int index1, int index2)
 {
 	if (j1.confidence[index1] > 0.15 && j1.confidence[index2] > 0.15)
 	{
-		if (j1.relativeJoints[index1].x > 0 && j1.relativeJoints[index1].y > 0 && j1.relativeJoints[index2].x > 0 && j1.relativeJoints[index2].y > 0)
+		if (j1.relativeJoints[index1].x > 0 && j1.relativeJoints[index1].y > 0 && j1.relativeJoints[index2].x > 0 && j1.relativeJoints[index2].y > 0
+			&& j1.relativeJoints[index1].x < 1 && j1.relativeJoints[index1].y < 1 && j1.relativeJoints[index2].x < 1 && j1.relativeJoints[index2].y < 1)
 		{
-			_lines.push_back(_width * j1.relativeJoints[index1].x);
-			_lines.push_back(_height * j1.relativeJoints[index1].y);
-			_lines.push_back(_width * j1.relativeJoints[index2].x);
-			_lines.push_back(_height * j1.relativeJoints[index2].y);
-			return true;
-		}
-		else
-		{
-			return false;
+			_recordingLines.push_back(_width * j1.relativeJoints[index1].x);
+			_recordingLines.push_back(_height * j1.relativeJoints[index1].y);
+			_recordingLines.push_back(_width * j1.relativeJoints[index2].x);
+			_recordingLines.push_back(_height * j1.relativeJoints[index2].y);
 		}
 	}
-	else {
-		return false;
-	}
-	
 }
 
 // Helper function to draw a skeleton bone
-bool NuitrackGL::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2)
+void NuitrackGL::drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2)
 {
 
 	if (j1.confidence > 0.15 && j2.confidence > 0.15)
 	{
-		if (j1.proj.x > 0 && j1.proj.y > 0 && j2.proj.x > 0 && j2.proj.x > 0) 
+		if (j1.proj.x > 0 && j1.proj.y > 0 && j2.proj.x > 0 && j2.proj.y > 0 && j1.proj.x < 1 && j1.proj.y < 1 && j2.proj.x < 1 && j2.proj.y < 1)
 		{
 			_lines.push_back(_width * j1.proj.x);
 			_lines.push_back(_height * j1.proj.y);
 			_lines.push_back(_width * j2.proj.x);
 			_lines.push_back(_height * j2.proj.y);
-			return true;
 		}
-		else
-		{
-			return false;
-		}
-		
-	}
-	else {
-		return false;
 	}
 }
 
@@ -538,7 +750,14 @@ void NuitrackGL::renderTexture()
 	glColor4f(1, 1, 1, 1);
 
 	glBindTexture(GL_TEXTURE_2D, _textureID);
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, _textureBuffer);
+
+	if (showVideo) {
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, _textureBuffer);
+	}
+	else
+	{
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, _width, _height, GL_RGB, GL_UNSIGNED_BYTE, emptyTextureBuffer);
+	}
 
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -554,39 +773,36 @@ void NuitrackGL::renderTexture()
 	glDisable(GL_TEXTURE_2D);
 }
 
-void NuitrackGL::renderLinesUser()
+void NuitrackGL::renderLines(std::vector<GLfloat> &lines, int lineWidth, int pointSize, Vector3 colour)
 {
-	if (_lines.empty())
-		return;
+	if (showJoints)
+	{
+		if (lines.empty())
+			return;
 
-	glEnableClientState(GL_VERTEX_ARRAY);
+		glEnableClientState(GL_VERTEX_ARRAY);
 
-	glColor4f(1, 0, 0, 1);
+		glColor4f(colour.x, colour.y, colour.z, 1);
 
-	glLineWidth(6);
+		glLineWidth(lineWidth);
 
-	glVertexPointer(2, GL_FLOAT, 0, _lines.data());
-	glDrawArrays(GL_LINES, 0, _lines.size() / 2);
+		glVertexPointer(2, GL_FLOAT, 0, lines.data());
+		glDrawArrays(GL_LINES, 0, lines.size() / 2);
 
-	glLineWidth(1);
+		glLineWidth(1);
 
-	glEnable(GL_POINT_SMOOTH);
-	glPointSize(16);
+		glEnable(GL_POINT_SMOOTH);
+		glPointSize(pointSize);
 
-	glVertexPointer(2, GL_FLOAT, 0, _lines.data());
-	glDrawArrays(GL_POINTS, 0, _lines.size() / 2);
+		glVertexPointer(2, GL_FLOAT, 0, lines.data());
+		glDrawArrays(GL_POINTS, 0, lines.size() / 2);
 
-	glColor4f(1, 1, 1, 1);
-	glPointSize(1);
-	glDisable(GL_POINT_SMOOTH);
+		glColor4f(1, 1, 1, 1);
+		glPointSize(1);
+		glDisable(GL_POINT_SMOOTH);
 
-	glDisableClientState(GL_VERTEX_ARRAY);
-}
-
-// Visualize bones, joints and hand positions
-void NuitrackGL::renderLinesTrainer(const float *skeletonColor, const float* jointColor, const float& pointSize, const float& lineWidth, const float* lines, const int& size, bool render, const bool& overrideJointColour)
-{
-	
+		glDisableClientState(GL_VERTEX_ARRAY);
+	}
 }
 
 int NuitrackGL::power2(int n)
@@ -608,8 +824,13 @@ void NuitrackGL::initTexture(int width, int height)
 	if (_textureBuffer != 0)
 		delete[] _textureBuffer;
 
+	if (emptyTextureBuffer != 0)
+		delete[] _textureBuffer;
+
 	_textureBuffer = new uint8_t[width * height * 3];
+	emptyTextureBuffer = new uint8_t[width * height * 3];
 	memset(_textureBuffer, 0, sizeof(uint8_t) * width * height * 3);
+	memset(emptyTextureBuffer, 0, sizeof(uint8_t) * width * height * 3);
 
 	glBindTexture(GL_TEXTURE_2D, _textureID);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);

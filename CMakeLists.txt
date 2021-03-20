@@ -70,6 +70,8 @@ set(SOURCES
     src/sqlite3/sqlite3.c
     src/sqlite3/sqlite3.h
     src/sqlite3/sqlite3ext.h
+    src/DBApi.h
+    src/DBApi.cpp
 )
     
 add_executable(${PROJECT_NAME} ${SOURCES})

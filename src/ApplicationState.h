@@ -1,18 +1,20 @@
 #include <iostream>
+#include <map>
 
-typedef enum { LOGIN_PATIENT, EXERCISE_HUB, PERFORMING_EXERCISE, FEEDBACK_HUB} PatientScreen; 
-typedef enum { LOGIN_TRAINER, PATIENT_DETAILS, EXERCISE_CREATOR, EXERCISE_EXAMINOR} TrainerScreen;
+typedef enum { LOGIN_PATIENT, CREATE_PATIENT, EXERCISE_HUB, REPLAY_TRAINER_EXERCISE, PERFORMING_EXERCISE_CORRECTNESS, PERFORMING_EXERCISE_RECORDING, FEEDBACK_HUB} PatientScreen; 
+typedef enum { LOGIN_TRAINER, CREATE_TRAINER, PATIENT_DETAILS, EXERCISE_CREATOR, EXERCISE_EXAMINOR} TrainerScreen;
 
 struct PatientDetails {
-	std::string patientID;
+	int patientID;
 	std::string name;
 	int age;
-	std::map<std::string, std::string> assignedExercisesMap;
-	std::map<std::string, std::pair<std::string, std::string>> compeltedExercisesMap;
+	std::map<int, std::pair<std::string, std::string>> assignedExercisesMap; // exerciseID -> name,exercisePath... analysis = null && feedback == null && patient_model_uri == null
+	std::map<int, std::tuple<std::string, std::string, std::string>> compeltedExercisesMap; // exerciseID -> (name, analysis, patient model uri), analysis != null && patient_session_model != null && feedback == null
+	std::map<int, std::tuple<std::string, std::string, std::string>> completedExercisesWithFeedbackAvailableMap; // exerciseID -> (name, analysis, feedback) analysis != null && patient_session_model != null && feedback != null
 };
 
 struct TrainerDetails {
-	std::string trainerID;
+	int trainerID;
 	std::string name;
 	int age;
 	int rating;
@@ -20,19 +22,31 @@ struct TrainerDetails {
 
 struct PatientState {
 	PatientScreen currentScreen;
-	PatientDetails *details;
+	PatientDetails *patientDetails;
 	TrainerDetails *trainerDetails;
-	bool exerciseInProgress;
-	std::string currentExercise;
+	bool replayInProgress;
+	bool replayComplete;
+	bool analysisInProgress;
+	bool analysisComplete;
+	bool recordInProgress;
+	bool recordComplete;
+	int currentExerciseKey;
+	std::string analysis;
+	std::string exercisePath;
 };
 
 struct TrainerState {
 	TrainerScreen currentScreen;
 	TrainerDetails *trainerDetails;
 	std::vector<PatientDetails> *patientDetails;
-	int exerciseCreatorIndex; // Index of the Patient in the vector for exercise created;
+	int exerciseCreatorIndex; // Index of the Patient in the vector for exercise creation
+	int exerciseExaminorPatientIndex; // Index of Patient in the vector for exercise examinor
+	int exerciseExaminorKey;
 	bool exerciseCreated;
 	bool exerciseCreation;
+	bool replayComplete;
+	bool patientReplayInProgress;
+	bool patientReplayComplete;
 	std::string exercisePath;
 };
 

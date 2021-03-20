@@ -10,11 +10,10 @@
 #include <fstream>
 #include <direct.h>
 #include <Windows.h>
-#include "ApplicationState.h"
-
 
 #include <ios>
 #include "sqlite3/sqlite3.h"
+#include "DBApi.h"
 
 #define GetCurrentDir _getcwd
 #define MENU_LENGTH 500
@@ -62,25 +61,12 @@ std::string openfilename(char* filter = "All Files (*.*)\0*.*\0", HWND owner = N
 	return fileNameStr;
 }
 
-void sql_test() {
-	sqlite3* db;
-	sqlite3_open("C:/dev/Database/test.db", &db);
-
-	std::string query2 = "INSERT INTO Therapist (\"name\", \"rating\", \"age\") VALUES (\"Test\", \"2\", \"21\");";
-
-	sqlite3_stmt* insertStmt;
-	std::cout << "Insertng Table Statement" << std::endl;
-	sqlite3_prepare(db, query2.c_str(), query2.size(), &insertStmt, NULL);
-	std::cout << "Stepping Table Statement" << std::endl;
-	if (sqlite3_step(insertStmt) != SQLITE_DONE) std::cout << "Didn't Insert into Table!" << std::endl;
-}
-
 ApplicationState state;
 
 int main(int argc, char* argv[])
 {
 
-	sql_test();
+	DBApi::InitializeDB();
 
 	state.mainSelection = false;
 
@@ -155,8 +141,16 @@ int main(int argc, char* argv[])
 	int recordDuration = 20; // In seconds
 
 	char userName[128] = "";
+	char userNameCreate[128] = "";
 	char password[128] = "";
+	char passwordCreate[128] = "";
 	char exerciseName[128] = "";
+	char feedback[256] = "";
+	int age = 18;
+	char name[128] = "";
+
+	const char* items[] = { "Upper Body", "Lower Body", "Full Body" };
+	static int item_current = 1;
 
 	bool joints[25];
 
@@ -180,33 +174,6 @@ int main(int argc, char* argv[])
 
 		ImGui::SetNextWindowSize({ MENU_LENGTH, (float) outputMode.yres });
 		ImGui::SetNextWindowPos({ 0.0, 0.0 });
-
-		/*
-		{
-			ImGui::Begin("Record");
-			ImGui::InputInt("Number of Frames", &recordDuration);
-			if (ImGui::Button("Start recording"))
-			{
-				sample.startRecording(recordDuration);
-			}
-			ImGui::End();
-		}
-
-		{
-			ImGui::Begin("Load Joint Data from Disk");
-			if (ImGui::Button("Load"))
-			{
-				std::string path = openfilename();
-				sample.loadDataToBuffer(path);
-			}
-
-			if (ImGui::Button("Play loaded data"))
-			{
-				sample.playLoadedData();
-			}
-			ImGui::End();
-		}
-		*/
 		
 		{
 			if (!state.mainSelection) 
@@ -216,6 +183,7 @@ int main(int argc, char* argv[])
 				{
 					state.mainSelection = true;
 					state.isPatient = false;
+					state.trainerState.currentScreen = LOGIN_TRAINER;
 				}
 
 				if (ImGui::Button("Patient"))
@@ -236,11 +204,66 @@ int main(int argc, char* argv[])
 							ImGui::InputTextWithHint("User Name", "Enter text here", userName, IM_ARRAYSIZE(userName));
 							ImGui::InputTextWithHint("Password", "Enter text here", password, IM_ARRAYSIZE(password));
 							if (ImGui::Button("Login")) {
-								//Assuming successful login, populate patient details
-								state.patientState.currentScreen = EXERCISE_HUB;
+								if (userName != "" && password != "")
+								{
+									PatientDetails* pd = new PatientDetails();
+									TrainerDetails* td = new TrainerDetails();
+
+									std::string un = std::string(userName);
+									std::string pw = std::string(password);
+
+									bool login = DBApi::LoginPatient(un, pw, pd->patientID);
+
+									if (login)
+									{
+										int trainerId = DBApi::GetTrainerIdForPatient(pd->patientID);
+										DBApi::GetTrainerDetails(trainerId, td);
+										DBApi::GetPatientDetails(pd->patientID, pd);
+										state.patientState.trainerDetails = td;
+										state.patientState.patientDetails = pd;
+										state.patientState.currentScreen = EXERCISE_HUB;
+									}
+								}
 							}
+
+							ImGui::SameLine();
+
+							if (ImGui::Button("Create New Account"))
+							{
+								state.patientState.currentScreen = CREATE_PATIENT;
+							}
+
 							if (ImGui::Button("Back")) {
 								state.mainSelection = false;
+							}
+							ImGui::End();
+							break;
+						}
+
+						case CREATE_PATIENT:
+						{
+							ImGui::Begin("Create account");
+							ImGui::InputTextWithHint("User Name", "Enter text here", userNameCreate, IM_ARRAYSIZE(userNameCreate));
+							ImGui::InputTextWithHint("Password", "Enter text here", passwordCreate, IM_ARRAYSIZE(passwordCreate));
+							ImGui::InputTextWithHint("Name", "Enter text here", name, IM_ARRAYSIZE(name));
+							ImGui::SliderInt("Age", &age, 18, 60);
+
+							if (ImGui::Button("Create"))
+							{
+								if (passwordCreate != "" && userNameCreate != "" && name != "")
+								{
+									DBApi::CreateNewPatient(std::string(userNameCreate), std::string(passwordCreate), std::string(name), age);
+									state.patientState.currentScreen = LOGIN_PATIENT;
+									userNameCreate[0] = '\0';
+									passwordCreate[0] = '\0';
+								}
+							}
+
+							if (ImGui::Button("Back"))
+							{
+								state.patientState.currentScreen = LOGIN_PATIENT;
+								userNameCreate[0] = '\0';
+								passwordCreate[0] = '\0';
 							}
 							ImGui::End();
 							break;
@@ -249,48 +272,206 @@ int main(int argc, char* argv[])
 						case EXERCISE_HUB:
 						{
 							ImGui::Begin("Exercise Hub");
-							ImGui::Text("Assigned Exercises............");
-							
-							for (auto it = state.patientState.details->assignedExercisesMap.begin(); it != state.patientState.details->assignedExercisesMap.end(); ++it)
-							{
-								std::string key = it->first;
-								std::string value = it->second;
 
-								ImGui::Text(key.c_str()); ImGui::SameLine();
+							if (ImGui::Button("Refresh"))
+							{
+								DBApi::GetTrainerDetails(state.patientState.trainerDetails->trainerID, state.patientState.trainerDetails);
+								DBApi::GetPatientDetails(state.patientState.patientDetails->patientID, state.patientState.patientDetails);
+							}
+							
+							ImGui::Text("Assigned Exercises............");
+							for (auto it = state.patientState.patientDetails->assignedExercisesMap.begin(); it != state.patientState.patientDetails->assignedExercisesMap.end(); ++it)
+							{
+								int key = it->first;
+								std::pair<std::string, std::string> value = it->second;
+
+								ImGui::Text(value.first.c_str()); ImGui::SameLine();
 								if (ImGui::Button("Perform Exercise")) {
-									state.patientState.currentExercise = key;
-									state.patientState.currentScreen = EXERCISE_HUB;
+									state.patientState.currentExerciseKey = key;
+									
+									state.patientState.analysisInProgress = false;
+									state.patientState.analysisComplete = false;
+									state.patientState.replayInProgress = false;
+									state.patientState.replayComplete = false;
+									state.patientState.recordInProgress = false;
+									state.patientState.recordComplete = false;
+									state.patientState.currentScreen = REPLAY_TRAINER_EXERCISE;
+									sample.displayVideo(false, true);
 								}
+							}
+
+							ImGui::Text("Completed Exercises............");
+							for (auto it = state.patientState.patientDetails->compeltedExercisesMap.begin(); it != state.patientState.patientDetails->compeltedExercisesMap.end(); ++it)
+							{
+								int key = it->first;
+								std::tuple<std::string, std::string, std::string> value = it->second;
+
+								ImGui::Text(std::get<0>(value).c_str());
+							}
+
+							ImGui::Text("Completed Exercises With Feedback");
+							for (auto it = state.patientState.patientDetails->completedExercisesWithFeedbackAvailableMap.begin(); it != state.patientState.patientDetails->completedExercisesWithFeedbackAvailableMap.end(); ++it)
+							{
+								int key = it->first;
+								std::tuple<std::string, std::string, std::string> value = it->second;
+
+								ImGui::Text(std::get<0>(value).c_str()); ImGui::SameLine();
+								if (ImGui::Button("View feedback"))
+								{
+									state.patientState.currentExerciseKey = key;
+									state.patientState.currentScreen = FEEDBACK_HUB;
+								}	
 							}
 
 							ImGui::Text("Completed Exercises...........");
 							// List of compelted exercises
 
 							if (ImGui::Button("Logout")) {
+								sample.displayVideo(false, false);
 								userName[0] = '\0';
 								password[0] = '\0';
-								delete state.patientState.details;
+								delete state.patientState.patientDetails;
 								delete state.patientState.trainerDetails;
-								state.patientState.details = NULL;
+								state.patientState.patientDetails = NULL;
 								state.patientState.trainerDetails = NULL;
 								state.patientState.currentScreen = LOGIN_PATIENT;
-
+								sample.displayVideo(false, false);
 							}
 							ImGui::End();
 							break;
 						}
 
-						case PERFORMING_EXERCISE:
+						case REPLAY_TRAINER_EXERCISE:
 						{
+							ImGui::Begin("Trainer replay");
+							ImGui::Text("Watch trainer performing the exercise.");
 
+							if (!state.patientState.replayInProgress)
+							{
+								sample.displayVideo(false, true);
+								std::string path = state.patientState.patientDetails->assignedExercisesMap.at(state.patientState.currentExerciseKey).second;
+								state.patientState.replayInProgress = true;
+								state.patientState.replayComplete = false;
+								sample.loadDiskToBuffer(path);
+								sample.replayLoadedData(state.patientState.replayComplete);
+							}
+
+							else if (state.patientState.replayComplete)
+							{
+								state.patientState.replayInProgress = false;
+								state.patientState.replayComplete = false;
+								state.patientState.analysisInProgress = false;
+								state.patientState.analysisComplete = false;
+								state.patientState.currentScreen = PERFORMING_EXERCISE_CORRECTNESS;
+								sample.displayVideo(true, true);
+							}
+
+							ImGui::End();
+
+							break;
+						}
+
+						case PERFORMING_EXERCISE_CORRECTNESS:
+						{
+							ImGui::Begin("Correctness Analyzer");
+							if (!state.patientState.analysisInProgress) 
+							{
+								ImGui::Text("Press the button below to start performing the exercise");
+								if (ImGui::Button("Start"))
+								{
+									state.patientState.analysisInProgress = true;
+									state.patientState.analysisComplete = false;
+									sample.analyzeLoadedData(state.patientState.analysisComplete, state.patientState.analysis);
+									sample.displayVideo(true, true);
+									
+								}
+							}
+							else if (!state.patientState.analysisComplete)
+							{
+								ImGui::Text("Follow along the trainer");
+								// Some more explanation text
+								ImGui::Text("Analysis in progress...");
+							}
+							else if (state.patientState.analysisComplete) {
+								// Analysis stored in analysis path
+								state.patientState.analysisInProgress = false;
+								state.patientState.analysisComplete = false;
+								state.patientState.recordInProgress = false;
+								state.patientState.recordComplete = false;
+								state.patientState.currentScreen = PERFORMING_EXERCISE_RECORDING;
+								sample.displayVideo(true, true);
+							}
+							ImGui::End();
+							break;
+						}
+
+						case PERFORMING_EXERCISE_RECORDING:
+						{
+							ImGui::Begin("Record Exercise");
+
+							if (!state.patientState.recordInProgress)
+							{
+								sample.displayVideo(true, true);
+								ImGui::Text("Now that you know how to perform the exercise");
+								ImGui::Text("Press the button below to start a recording of you performing the exercise");
+								ImGui::Text("This will be sent to the Physiotherapist for analysis");
+
+								ImGui::SliderInt("Duration", &recordDuration, 20, 60);
+
+								if (ImGui::Button("Start Recording")) {
+									state.patientState.recordInProgress = true;
+									state.patientState.recordComplete = false;
+									sample.startRecording(recordDuration, state.patientState.exercisePath, state.patientState.recordComplete, 0);
+									sample.displayVideo(true, true);
+								}
+							}
+
+							else if (state.patientState.recordComplete)
+							{
+								sample.displayVideo(false, false);
+
+								if (ImGui::Button("Send recording")) 
+								{
+									DBApi::AnalysisForExercise(state.patientState.currentExerciseKey, state.patientState.analysis, state.patientState.exercisePath);
+
+									state.patientState.analysisInProgress = false;
+									state.patientState.analysisComplete = false;
+									state.patientState.replayComplete = false;
+									state.patientState.replayComplete = false;
+									state.patientState.recordInProgress = false;
+									state.patientState.recordComplete = false;
+
+									state.patientState.currentScreen = EXERCISE_HUB;
+
+									sample.displayVideo(false, false);
+
+								}
+
+								if (ImGui::Button("Redo recording")) {
+									state.patientState.recordInProgress = false;
+									state.patientState.recordComplete = false;
+									sample.displayVideo(true, true);
+								}
+							}
+
+							ImGui::End();
+
+							break;
 						}
 
 						case FEEDBACK_HUB:
 						{
+							ImGui::Begin("Feedback Hub");
 
+							ImGui::Text("Feedback");
+							ImGui::Text(std::get<2>(state.patientState.patientDetails->completedExercisesWithFeedbackAvailableMap.at(state.patientState.currentExerciseKey)).c_str());
+							if (ImGui::Button("Go Back"))
+							{
+								state.patientState.currentScreen = EXERCISE_HUB;
+							}
+							ImGui::End();
 						}
 					}
-
 				}
 				else
 				{
@@ -302,30 +483,70 @@ int main(int argc, char* argv[])
 							ImGui::InputTextWithHint("Password", "Enter text here", password, IM_ARRAYSIZE(password));
 
 							
-
-
 							if (ImGui::Button("Login")) { // 1 - username, pass -> true, false
 								//Assuming successful login, populate patient details
-								state.trainerState.currentScreen = PATIENT_DETAILS;
 
-								// 2 - trainerId -> trainer details
+								int id;
+								bool loggedIn = DBApi::LoginTherapist(std::string(userName), std::string(password), id);
 
-								// 3 - trainer Id -> Patient Details
+								if (loggedIn == true)
+								{
+									state.trainerState.trainerDetails = new TrainerDetails();
+									DBApi::GetTrainerDetails(id, state.trainerState.trainerDetails);
 
-								//Dummy Data
-								state.trainerState.patientDetails = new std::vector<PatientDetails>();
-								PatientDetails patient1;
-								patient1.patientID = "123";
-								patient1.age = 24;
-								patient1.name = "Dummy patient";
-								patient1.assignedExercisesMap.insert(std::pair<std::string, std::string>("Exercise1", "Test"));
-								patient1.compeltedExercisesMap.insert(std::pair<std::string, std::pair<std::string, std::string>>("Exercise2", std::pair<std::string, std::string>("test2", "test3")));
-								state.trainerState.patientDetails->push_back(patient1);
+									std::vector<int> patientIds = DBApi::GetPatientIdsForTrainer(state.trainerState.trainerDetails->trainerID);
+									state.trainerState.patientDetails = new std::vector<PatientDetails>();
 
+									for (int patientId : patientIds)
+									{
+										PatientDetails pd;
+										PatientDetails* pointer = &pd;
+										DBApi::GetPatientDetails(patientId, pointer);
+										state.trainerState.patientDetails->push_back(pd);
+									}
 
+									state.trainerState.currentScreen = PATIENT_DETAILS;
+									sample.displayVideo(false, false);
+								}
+							}
+
+							ImGui::SameLine();
+
+							if (ImGui::Button("Create New Account"))
+							{
+								state.trainerState.currentScreen = CREATE_TRAINER;
 							}
 							if (ImGui::Button("Back")) {
 								state.mainSelection = false;
+							}
+							ImGui::End();
+							break;
+						}
+
+						case CREATE_TRAINER:
+						{
+							ImGui::Begin("Create account");
+							ImGui::InputTextWithHint("User Name", "Enter text here", userNameCreate, IM_ARRAYSIZE(userNameCreate));
+							ImGui::InputTextWithHint("Password", "Enter text here", passwordCreate, IM_ARRAYSIZE(passwordCreate));
+							ImGui::InputTextWithHint("Name", "Enter text here", name, IM_ARRAYSIZE(name));
+							ImGui::SliderInt("Age", &age, 18, 60);
+
+							if (ImGui::Button("Create"))
+							{
+								if (passwordCreate != "" && userNameCreate != "" && name != "")
+								{
+									DBApi::CreateNewTherapist(std::string(userNameCreate), std::string(passwordCreate), std::string(name), age);
+									state.trainerState.currentScreen = LOGIN_TRAINER;
+									userNameCreate[0] = '\0';
+									passwordCreate[0] = '\0';
+								}
+							}
+
+							if (ImGui::Button("Back"))
+							{
+								state.trainerState.currentScreen = LOGIN_TRAINER;
+								userNameCreate[0] = '\0';
+								passwordCreate[0] = '\0';
 							}
 							ImGui::End();
 							break;
@@ -336,43 +557,75 @@ int main(int argc, char* argv[])
 							ImGui::Begin("Patient Details");
 							if (ImGui::Button("Refresh")) 
 							{
-								//reload patient detials (no need to do on seperate thread, as main thread isn't doing anything else now.
+								DBApi::GetTrainerDetails(state.trainerState.trainerDetails->trainerID, state.trainerState.trainerDetails);
+
+								std::vector<int> patientIds = DBApi::GetPatientIdsForTrainer(state.trainerState.trainerDetails->trainerID);
+								state.trainerState.patientDetails = new std::vector<PatientDetails>();
+
+								for (int patientId : patientIds)
+								{
+									PatientDetails pd;
+									PatientDetails* pointer = &pd;
+									DBApi::GetPatientDetails(patientId, pointer);
+									state.trainerState.patientDetails->push_back(pd);
+								}
+
+								state.trainerState.currentScreen = PATIENT_DETAILS;
 							}
 							
 							for (auto it = state.trainerState.patientDetails->begin(); it != state.trainerState.patientDetails->end(); it++) 
 							{
-								PatientDetails details = *it;
+								PatientDetails patientDetails = *it;
 								int index = it - state.trainerState.patientDetails->begin();
 								std::string title = "Patient ";
 								title.append(std::to_string(index + 1));
 								title.append(".................");
 								ImGui::Text(title.c_str());
 								
-								ImGui::Text(("Name - " + details.name).c_str());
+								ImGui::Text(("Name - " + patientDetails.name).c_str());
 								if (ImGui::Button("Create & Assign an exercise")) {
 									state.trainerState.currentScreen = EXERCISE_CREATOR;
 									state.trainerState.exerciseCreatorIndex = index;
 									state.trainerState.exerciseCreated = false;
 									state.trainerState.exerciseCreation = false;
+
+									sample.displayVideo(true, true);
 								}
 								ImGui::Text("Assigned Exercises");
-								for (auto it = details.assignedExercisesMap.begin(); it != details.assignedExercisesMap.end(); ++it)
+								for (auto it2 = patientDetails.assignedExercisesMap.begin(); it2 != patientDetails.assignedExercisesMap.end(); ++it2)
 								{
-									std::string key = it->first;
-									std::string value = it->second;
+									int key = it2->first;
+									std::pair<std::string, std::string> value = it2->second;
 
-									ImGui::Text(key.c_str());
+									ImGui::Text(value.first.c_str());
 								}
 
 								ImGui::Text("Completed Exercises");
-								for (auto it = details.compeltedExercisesMap.begin(); it != details.compeltedExercisesMap.end(); ++it) 
+								int index2 = 0;
+								for (auto it2 = patientDetails.compeltedExercisesMap.begin(); it2 != patientDetails.compeltedExercisesMap.end(); ++it2) 
 								{
-									std::string key = it->first;
+									int key = it2->first;
+									std::tuple<std::string, std::string, std::string> value = it2->second;
+									
+									ImGui::Text(std::get<0>(value).c_str()); ImGui::SameLine();
+									if (ImGui::Button("Analysis and Feedback"))
+									{
+										state.trainerState.currentScreen = EXERCISE_EXAMINOR;
+										state.trainerState.exerciseExaminorKey = key;
+										state.trainerState.patientReplayInProgress = false;
+										state.trainerState.patientReplayComplete = false;
+										sample.displayVideo(false, true);
+									};
+									index++;
+								}
 
-									
-									
-									ImGui::Text(key.c_str()); ImGui::SameLine();
-									ImGui::Button("Analysis and Feedback");
+								ImGui::Text("Completed & Feedback Provided");
+								for (auto it2 = patientDetails.completedExercisesWithFeedbackAvailableMap.begin(); it2 != patientDetails.completedExercisesWithFeedbackAvailableMap.end(); ++it2)
+								{
+									int key = it2->first;
+									auto value = it2->second;
+
+									ImGui::Text(std::get<0>(value).c_str());
 								}
 
 							}
@@ -385,6 +638,7 @@ int main(int argc, char* argv[])
 								state.trainerState.patientDetails = NULL;
 								state.trainerState.trainerDetails = NULL;
 								state.trainerState.currentScreen = LOGIN_TRAINER;
+								sample.displayVideo(false, false);
 
 							}
 							ImGui::End();
@@ -399,6 +653,7 @@ int main(int argc, char* argv[])
 							{
 								if (!state.trainerState.exerciseCreation)
 								{
+									sample.displayVideo(true, true);
 									if (ImGui::Button("Back")) {
 										state.trainerState.currentScreen = PATIENT_DETAILS;
 
@@ -410,18 +665,15 @@ int main(int argc, char* argv[])
 
 									ImGui::InputInt("Duration of Exercise", &recordDuration);
 
-									for (int i = 0; i < 25; i++)
-									{
-										std::string text = "Joint";
-										text.append(std::to_string(i));
-										ImGui::Checkbox(text.c_str(), &joints[i]);
-									}
+									ImGui::Text("What type of exercise?"); ImGui::SameLine();
+									ImGui::ListBox("", &item_current, items, IM_ARRAYSIZE(items), 1);
 
 									if (ImGui::Button("Start Recording"))
 									{
 										//send command that starts recording, output should be path of recording, and the 2 exercise create booleans needs to be updated
-										sample.startRecording(recordDuration, state.trainerState.exercisePath, state.trainerState.exerciseCreated);
+										sample.startRecording(recordDuration, state.trainerState.exercisePath, state.trainerState.exerciseCreated, item_current + 1);
 										state.trainerState.exerciseCreation = true;
+										state.trainerState.replayComplete = true;
 									}
 								}
 								else
@@ -432,14 +684,22 @@ int main(int argc, char* argv[])
 							}
 							else
 							{
+								if (!state.trainerState.replayComplete)
+								{
+									ImGui::Text("Replay in progress");
+									ImGui::End();
+									break;
+								}
+
 								ImGui::Text("Exercise creation complete.");
 								ImGui::InputTextWithHint("Exercise Name", "Enter text here", exerciseName, IM_ARRAYSIZE(exerciseName)); ImGui::SameLine();
-								if (ImGui::Button("Assign to patient")) 
+
+								if (ImGui::Button("Assign to patient"))
 								{
-									// Assign to patient in DB (in bg thread), change need not be reflected in patient details till refresh button is pressed.
-									std::string patientId = state.trainerState.patientDetails->at(state.trainerState.exerciseCreatorIndex).patientID;
-									//std::string trainerId = state.trainerState.trainerDetails->trainerID;
-									// Exercise name is exerciseName
+									sample.displayVideo(false, false);
+									int patientId = state.trainerState.patientDetails->at(state.trainerState.exerciseCreatorIndex).patientID;
+	
+									DBApi::AssignExerciseToPatient(exerciseName, "Test Description", state.trainerState.exercisePath, patientId, state.trainerState.trainerDetails->trainerID);
 
 									state.trainerState.exerciseCreated = false;
 									state.trainerState.exerciseCreation = false;
@@ -451,11 +711,19 @@ int main(int argc, char* argv[])
 									recordDuration = 20;
 								}
 
+								if (ImGui::Button("Re-play recording"))
+								{
+									sample.displayVideo(false, true);
+									state.trainerState.replayComplete = false;
+									sample.replayRecording(state.trainerState.replayComplete);
+								}
+
 								if (ImGui::Button("Redo")) 
 								{
 									remove(state.trainerState.exercisePath.c_str());
 									state.trainerState.exerciseCreation = false;
 									state.trainerState.exerciseCreated = false;
+									sample.displayVideo(true, true);
 								}
 
 								if (ImGui::Button("Delete Recording & Exit")) 
@@ -464,6 +732,7 @@ int main(int argc, char* argv[])
 									state.trainerState.exerciseCreated = false;
 									state.trainerState.exerciseCreation = false;
 									state.trainerState.currentScreen = PATIENT_DETAILS;
+									sample.displayVideo(false, false);
 
 									for (int i = 0; i < 25; i++) {
 										joints[i] = true;
@@ -479,14 +748,48 @@ int main(int argc, char* argv[])
 
 						case EXERCISE_EXAMINOR:
 						{
-							//examine completed exercises for a patient, view the analytics and see patient recording and give feedback in a textbox.
+
+							ImGui::Begin("Exercise Examinor");
+
+							PatientDetails* patientDetails = &state.trainerState.patientDetails->at(state.trainerState.exerciseCreatorIndex);
+
+							if (!state.trainerState.patientReplayInProgress)
+							{
+								if (ImGui::Button("Start Patient Replay")) {
+									state.trainerState.patientReplayInProgress = true;
+									sample.loadDiskToBuffer(std::get<2>(patientDetails->compeltedExercisesMap.at(state.trainerState.exerciseExaminorKey)));
+									sample.replayLoadedData(state.trainerState.patientReplayComplete);
+								}
+							}
+
+							else if (!state.trainerState.patientReplayComplete)
+							{
+								ImGui::Text("Patient exercise in progress");
+							}
+
+							else if (state.trainerState.patientReplayComplete)
+							{
+								ImGui::Text("Analysis");
+								ImGui::Text(std::get<1>(patientDetails->compeltedExercisesMap.at(state.trainerState.exerciseExaminorKey)).c_str());
+
+								ImGui::InputTextWithHint("Feedback", "Enter", feedback, IM_ARRAYSIZE(feedback));
+
+								if (ImGui::Button("Submit"))
+								{
+									state.trainerState.currentScreen = PATIENT_DETAILS;
+									state.trainerState.patientReplayComplete = false;
+
+									DBApi::FeedbackForExercise(state.trainerState.exerciseExaminorKey, std::string(feedback));
+								}
+							}
+
+							ImGui::End();
 						}
 					}
 				}
 			}
 		}
 
-		
 		// Delegate this action to example's main class
 		bool update = sample.update(skeletonColor, jointColor, pointSize, lineWidth, overrideJointColour);
 
@@ -507,6 +810,7 @@ int main(int argc, char* argv[])
 		glfwPollEvents();
 	}
 
+	DBApi::CloseDB();
 	sample.release();
 	ImGui_ImplGlfw_Shutdown();
 	ImGui::DestroyContext();

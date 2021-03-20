@@ -29,6 +29,7 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 
 		bool checkType = true;
 
+		bool requiredJoints = false;
 		bool time = false;
 		bool type = false;
 		bool confidence = false;
@@ -56,7 +57,11 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 
 				std::string typeString = line.substr(p1, p2 - p1);
 
-				if (typeString.compare("Time") == 0)
+				if (typeString.compare("RJ") == 0)
+				{
+					requiredJoints = true;
+				}
+				else if (typeString.compare("Time") == 0)
 				{
 					time = true;
 				}
@@ -108,7 +113,12 @@ void DiskHelper::readDatafromDisk(const std::string& path, std::vector<JointFram
 
 				std::string dataString = line.substr(p1, p2 - p1);
 
-				if (time)
+				if (requiredJoints)
+				{
+					requiredJoints = false;
+					jointFrame.requiredJoints = std::stoi(dataString);
+				}
+				else if (time)
 				{
 					time = false;
 					jointFrame.timeStamp = std::stoi(dataString);
@@ -206,6 +216,7 @@ void DiskHelper::writeDataToDisk(std::string* path, const std::vector<JointFrame
 	for (int j = 0; j < buffer.size(); j++)
 	{
 		file << "Time," << buffer[j].timeStamp << ",";
+		file << "RJ," << buffer[j].requiredJoints << ",";
 
 		for (int i = 0; i < 25; i++) {
 			file << "Confidence," << buffer[j].confidence[i] << ",x," << buffer[j].realJoints[i].x << ",y," << buffer[j].realJoints[i].y << ",z," << buffer[j].realJoints[i].z << ",";
