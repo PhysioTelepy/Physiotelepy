@@ -71,7 +71,7 @@ public:
 
 	// Update the depth map, tracking and gesture recognition data,
 	// then redraw the view
-	bool update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth, const bool& overrideJointColour);
+	bool update(bool &userInFrame);
 
 	// Release all sample resources
 	void release();
@@ -91,10 +91,11 @@ public:
 
 	void analyzeLoadedData(bool &analysisComplete, std::string &analysis);
 	void replayLoadedData(bool& analysisComplete);
-	void displayVideo(bool display, bool joints);
+	void displayVideo(bool display, bool joints, bool jointsTrainer);
 
 private:
 	bool showVideo = false;
+	bool showJointsTrainer = false;
 	bool showJoints = false;
 
 	int userAngles[19];
@@ -169,7 +170,7 @@ private:
 	void drawBone(const JointFrame& j1, int index1, int index2);
 	void drawBone(const tdv::nuitrack::Joint& j1, const tdv::nuitrack::Joint& j2);
 	void renderTexture();
-	void renderLines(std::vector<GLfloat>& lines, int lineWidth, int pointSize, Vector3 colour);
+	void renderLines(std::vector<GLfloat>& lines, int lineWidth, int pointSize, float r, float g, float b, bool show);
 
 	int power2(int n);
 

@@ -99,10 +99,11 @@ void NuitrackGL::init(const std::string& config)
 	_onIssuesUpdateHandler = tdv::nuitrack::Nuitrack::connectOnIssuesUpdate(std::bind(&NuitrackGL::onIssuesUpdate, this, std::placeholders::_1));
 }
 
-void NuitrackGL::displayVideo(bool display, bool joints)
+void NuitrackGL::displayVideo(bool display, bool joints, bool trainerJoints)
 {
 	showVideo = display;
 	showJoints = joints;
+	showJointsTrainer = trainerJoints;
 }
 
 void NuitrackGL::onUserUpdateCallback(tdv::nuitrack::UserFrame::Ptr frame) {
@@ -119,7 +120,7 @@ void NuitrackGL::onNewGesture(tdv::nuitrack::GestureData::Ptr gestureData)
 	}
 }
 
-bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& pointSize, const float& lineWidth, const bool& overrideJointColour)
+bool NuitrackGL::update(bool &userInFrame)
 {
 	if (!_isInitialized)
 	{
@@ -189,6 +190,7 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 		}
 
 		hasAllJoints = false;
+		float correctness = 0.0f;
 
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
 		if (isReplay)
@@ -227,7 +229,7 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 								analysisPointer++;
 							}
 
-							std::cout << angleCorrectness << std::endl;
+							correctness = angleCorrectness;
 						}
 						else if (exerciseType == LOWER)
 						{
@@ -242,6 +244,7 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 							{
 								analysisPointer++;
 							}
+							correctness = angleCorrectness;
 						}
 						else if (exerciseType == FULL)
 						{
@@ -256,6 +259,7 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 							{
 								analysisPointer++;
 							}
+							correctness = angleCorrectness;
 						}
 					}
 				}
@@ -266,21 +270,81 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 			}
 		}
 
+		if (showVideo)
+		{
+			if (_lines.empty())
+			{
+				userInFrame = false;
+			}
+			else
+			{
+				userInFrame = true;
+			}
+		}
+		else
+		{
+			userInFrame = true;
+		} 
+
 		Vector3 col;
+		Vector3 colTrainer;
+
+		colTrainer.x = 1.0f;
+		colTrainer.y = 1.0f;
+		colTrainer.z = 1.0f;
+
 		col.x = 1.0f;
 		col.y = 1.0f;
 		col.y = 1.0f;
+
 		renderTexture();
-		renderLines(_lines, 6, 16, col);
+		
 		if (isReplay)
 		{
-			col.x = 1.0f;
-			col.y = 0.0f;
-			col.z = 0.0f;
-			renderLines(_recordingLines, 6, 16, col);
+			renderLines(_recordingLines, 6, 16, 1.0f, 1.0f, 1.0f, showJointsTrainer);
+			if (loadedBufferAnalysis.load())
+			{
+				if (hasAllJoints)
+				{
+					if (correctness == 0.0f)
+					{
+						renderLines(_lines, 6, 16, 0.0f, 1.0f, 0.0f, showJoints);
+					}
+					else
+					{
+						if (correctness < 40.0f)
+						{
+							renderLines(_lines, 6, 16, 0.0f, 1.0f, 0.0f, showJoints);
+						}
+						else if (correctness >= 40.0f && correctness < 47.0f)
+						{
+							renderLines(_lines, 6, 16, 1.0f, 1.0f, 0.0f, showJoints);
+						}
+						else if (correctness >= 47.0f && correctness < 53.0f)
+						{
+							renderLines(_lines, 6, 16, 1.0f, 0.5f, 0.0f, showJoints);
+						}
+						else if (correctness >= 53.0f)
+						{
+							renderLines(_lines, 6, 16, 1.0f, 0.0f, 0.0f, showJoints);
+						}
+					}
+				}
+				else
+				{
+					renderLines(_lines, 6, 16, 1.0f, 0.0f, 0.0f, showJoints);
+				}
+			}
+			else
+			{
+				renderLines(_lines, 6, 16, 1.0f, 1.0f, 1.0f, showJoints);
+			}
+		}
+		else
+		{
+			renderLines(_lines, 6, 16, 1.0f, 1.0f, 1.0f, showJoints);
 		}
 		
-
 		std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
 		if (record.load() && now > recordTill)
@@ -292,12 +356,14 @@ bool NuitrackGL::update(float* skeletonColor, float* jointColor, const float& po
 	}
 	catch (const tdv::nuitrack::LicenseNotAcquiredException& e)
 	{
+		userInFrame = true;
 		// Update failed, negative result
 		std::cerr << "LicenseNotAcquired exception (ExceptionType: " << e.type() << ")" << std::endl;
 		return false;
 	}
 	catch (const tdv::nuitrack::Exception& e)
 	{
+		userInFrame = true;
 		// Update failed, negative result
 		std::cerr << "Nuitrack update failed (ExceptionType: " << e.type() << ")" << std::endl;
 		return false;
@@ -411,6 +477,11 @@ void NuitrackGL::startRecording(const int &duration, std::string &path, bool &fi
 	storePath = &path;
 	recordingComplete = &finishedRecording;
 	writeJointDataBuffer.clear();
+
+	if (requiredJoints == -1) // get from read joint data buffer
+	{
+		requiredJoints = readJointDataBuffer.at(0).requiredJoints;
+	}
 
 	if (requiredJoints == 0)
 	{
@@ -773,17 +844,16 @@ void NuitrackGL::renderTexture()
 	glDisable(GL_TEXTURE_2D);
 }
 
-void NuitrackGL::renderLines(std::vector<GLfloat> &lines, int lineWidth, int pointSize, Vector3 colour)
+void NuitrackGL::renderLines(std::vector<GLfloat> &lines, int lineWidth, int pointSize, float r, float g, float b, bool show)
 {
-	if (showJoints)
+	if (show)
 	{
 		if (lines.empty())
 			return;
 
 		glEnableClientState(GL_VERTEX_ARRAY);
 
-		glColor4f(colour.x, colour.y, colour.z, 1);
-
+		glColor4f(r, g, b, 1.0f);
 		glLineWidth(lineWidth);
 
 		glVertexPointer(2, GL_FLOAT, 0, lines.data());
@@ -797,7 +867,7 @@ void NuitrackGL::renderLines(std::vector<GLfloat> &lines, int lineWidth, int poi
 		glVertexPointer(2, GL_FLOAT, 0, lines.data());
 		glDrawArrays(GL_POINTS, 0, lines.size() / 2);
 
-		glColor4f(1, 1, 1, 1);
+		glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 		glPointSize(1);
 		glDisable(GL_POINT_SMOOTH);
 

@@ -212,6 +212,11 @@ void DBApi::GetPatientDetails(int patientId, PatientDetails*& dt)
 	res = std::vector<std::vector<std::string>>();
 	SelectData(columns, 7, table, predicate, res);
 
+	dt->assignedExercisesMap.clear();
+	dt->completedExercisesWithFeedbackAvailableMap.clear();
+	dt->compeltedExercisesMap.clear();
+
+
 	for (int i = 0; i < res.size(); i++)
 	{
 		int exerciseId = std::stoi(res[i][0]);
@@ -287,11 +292,11 @@ bool DBApi::LoginPatient(std::string username, std::string password, int& patien
 	return false;
 }
 
-void DBApi::AssignExerciseToPatient(std::string name, std::string description, std::string model_uri, int patientId, int therapist_id)
+void DBApi::AssignExerciseToPatient(std::string name, std::string description, std::string model_uri, int patientId, int therapistId)
 {
 	std::string table = "Exercise";
 	std::string columns = "name, description, model_uri, therapist_id, patient_id";
-	std::string data = "('" + name + "', '" + description + "', '"  + model_uri + "', " + std::to_string(patientId) + ", " + std::to_string(therapist_id) + ")";
+	std::string data = "('" + name + "', '" + description + "', '"  + model_uri + "', " + std::to_string(therapistId) + ", " + std::to_string(patientId) + ")";
 	
 	InsertData(table, columns, data);
 }
