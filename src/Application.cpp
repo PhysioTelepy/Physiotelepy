@@ -329,6 +329,7 @@ int main(int argc, char* argv[])
 							}
 							
 							if (ImGui::CollapsingHeader("Assigned Exercises")) {
+								int index = 0;
 								for (auto it = state.patientState.patientDetails->assignedExercisesMap.begin(); it != state.patientState.patientDetails->assignedExercisesMap.end(); ++it)
 								{
 									int key = it->first;
@@ -337,7 +338,7 @@ int main(int argc, char* argv[])
 									ImGui::Indent();
 									if (ImGui::TreeNode(value.first.c_str()))
 									{
-										if (ImGui::Button("Perform Exercise")) {
+										if (ImGui::Button(std::string("Perform Exercise ##").append(std::to_string(index)).c_str())) {
 											state.patientState.currentExerciseKey = key;
 
 											state.patientState.analysisInProgress = false;
@@ -352,7 +353,7 @@ int main(int argc, char* argv[])
 										ImGui::TreePop();
 									}
 									ImGui::Unindent();
-									
+									index++;
 								}
 							}
 
@@ -368,8 +369,10 @@ int main(int argc, char* argv[])
 								}
 							}
 
+
 							if (ImGui::CollapsingHeader("Completed Exercises With Feedback"))
 							{
+								int index = 0;
 								for (auto it = state.patientState.patientDetails->completedExercisesWithFeedbackAvailableMap.begin(); it != state.patientState.patientDetails->completedExercisesWithFeedbackAvailableMap.end(); ++it)
 								{
 									int key = it->first;
@@ -378,7 +381,7 @@ int main(int argc, char* argv[])
 									ImGui::Indent();
 									if (ImGui::TreeNode(std::get<0>(value).c_str()))
 									{
-										if (ImGui::Button("View feedback"))
+										if (ImGui::Button(std::string("View feedback ##").append(std::to_string(index)).c_str()))
 										{
 											state.patientState.currentExerciseKey = key;
 											state.patientState.currentScreen = FEEDBACK_HUB;
@@ -386,6 +389,7 @@ int main(int argc, char* argv[])
 										ImGui::TreePop();
 									}
 									ImGui::Unindent();
+									index++;
 								}
 							}
 
@@ -520,7 +524,6 @@ int main(int argc, char* argv[])
 
 								if (ImGui::Button("Send recording")) 
 								{
-									state.patientState.analysis = "Very cool exercise";
 									DBApi::AnalysisForExercise(state.patientState.currentExerciseKey, state.patientState.analysis, state.patientState.exercisePath);
 
 									state.patientState.analysisInProgress = false;
@@ -729,7 +732,7 @@ int main(int argc, char* argv[])
 									ImGui::Text("Past Exercises");
 									ImGui::Separator();
 
-									if (ImGui::CollapsingHeader("Assigned Exercises")) {
+									if (ImGui::CollapsingHeader(std::string("Assigned Exercises ##").append(std::to_string(index)).c_str())) {
 										for (auto it2 = patientDetails.assignedExercisesMap.begin(); it2 != patientDetails.assignedExercisesMap.end(); ++it2)
 										{
 											int key = it2->first;
@@ -741,8 +744,9 @@ int main(int argc, char* argv[])
 										}
 									}
 
-									if (ImGui::CollapsingHeader("Completed Exercises"))
+									if (ImGui::CollapsingHeader(std::string("Completed Exercises ##").append(std::to_string(index)).c_str()))
 									{
+										int index2 = 0;
 										for (auto it2 = patientDetails.compeltedExercisesMap.begin(); it2 != patientDetails.compeltedExercisesMap.end(); ++it2)
 										{
 											int key = it2->first;
@@ -751,10 +755,11 @@ int main(int argc, char* argv[])
 											ImGui::Indent();
 											if (ImGui::TreeNode(std::get<0>(value).c_str()))
 											{
-												if (ImGui::Button("Analysis and Feedback"))
+												if (ImGui::Button(std::string("Analysis and Feedback ##").append(std::to_string(index).append(std::to_string(index2))).c_str()))
 												{
 													state.trainerState.currentScreen = EXERCISE_EXAMINOR;
 													state.trainerState.exerciseExaminorKey = key;
+													state.trainerState.exerciseExaminorPatientIndex = index;
 													state.trainerState.patientReplayInProgress = false;
 													state.trainerState.patientReplayComplete = false;
 													sample.displayVideo(false, false, true);
@@ -762,10 +767,11 @@ int main(int argc, char* argv[])
 												ImGui::TreePop();
 											};
 											ImGui::Unindent();
+											index2++;
 										}
 									}
 
-									if (ImGui::CollapsingHeader("Completed & Feedback Provided"))
+									if (ImGui::CollapsingHeader(std::string("Completed & Feedback Provided ##").append(std::to_string(index)).c_str()))
 									{
 										for (auto it2 = patientDetails.completedExercisesWithFeedbackAvailableMap.begin(); it2 != patientDetails.completedExercisesWithFeedbackAvailableMap.end(); ++it2)
 										{
@@ -909,7 +915,7 @@ int main(int argc, char* argv[])
 
 							ImGui::Begin("Exercise Examinor");
 
-							PatientDetails* patientDetails = &state.trainerState.patientDetails->at(state.trainerState.exerciseCreatorIndex);
+							PatientDetails* patientDetails = &state.trainerState.patientDetails->at(state.trainerState.exerciseExaminorPatientIndex);
 
 							if (!state.trainerState.patientReplayInProgress)
 							{

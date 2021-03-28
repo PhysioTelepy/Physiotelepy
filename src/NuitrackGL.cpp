@@ -186,11 +186,41 @@ bool NuitrackGL::update(bool &userInFrame)
 			{
 				*analysisComplete = true;
 				loadedBufferAnalysis.store(false);
+
+				float totalColouredFrames = redFrames + greenFrames + yellowFrames + orangeFrames;
+				float percentRed = (((float)redFrames) / totalColouredFrames) * 100.0f;
+				float percentYellow = (((float)yellowFrames) / totalColouredFrames) * 100.0f;
+				float percentGreen = (((float)greenFrames) / totalColouredFrames) * 100.0f;
+				float percentOrange = (((float)orangeFrames) / totalColouredFrames) * 100.0f;
+
+				float totalFrames = checkingFrames + passFrames;
+				int percentCheckingFrames = 100.0f * ((float)checkingFrames) / ((float)totalFrames);
+				int percentPassFrames = 100.0f * ((float)passFrames) / ((float)totalFrames);
+
+				float percentCorrectFrames = 100.0f * ((float)correctFrames + (float)passFrames) / ((float)totalFrames);
+				float percentIncorrectFrames = 100.0f - percentCorrectFrames;
+
+				std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+
+				std::string l0 = std::string("Total Duration - ") + std::to_string(now - startTime);
+				std::string l1 = std::string("Total Frames - ") + std::to_string(totalFrames);
+				std::string l2 = std::string("Percent Red Frames - ") + std::to_string(percentRed);
+				std::string l3 = std::string("Percent Orange Frames - ") + std::to_string(percentOrange);
+				std::string l4 = std::string("Percent Yellow Frames - ") + std::to_string(percentYellow);
+				std::string l5 = std::string("Percent Green Frames - ") + std::to_string(percentGreen);
+				std::string l6 = std::string("Percent Analysis Frames - ") + std::to_string(percentCheckingFrames);
+				std::string l7 = std::string("Percent No-Analysis Frames - ") + std::to_string(percentPassFrames);
+				std::string l8 = std::string("Percent Correct Frames - ") + std::to_string(percentCorrectFrames);
+				std::string l9 = std::string("Percent Incorrect Frames - ") + std::to_string(percentIncorrectFrames);
+				
+				*analysisRef = l0 + "\n" + l1 + "\n" + l2 + "\n" + l3 + "\n" + l4 + "\n" + l5 + "\n" + l6 + "\n" + l7 + "\n" + l8 + "\n" + l9;
 			}
 		}
 
 		hasAllJoints = false;
 		float correctness = 0.0f;
+
+		float threashold = CORRECTNESS_THRESHOLD_UPPER;
 
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
 		if (isReplay)
@@ -213,6 +243,7 @@ bool NuitrackGL::update(bool &userInFrame)
 					// Assume recording has all the required joints.
 					// Check if user joints has all the required joints
 					// If yes check angle
+					checkingFrames += 1;
 
 					if (hasAllJoints) {
 						if (exerciseType == UPPER)
@@ -261,10 +292,24 @@ bool NuitrackGL::update(bool &userInFrame)
 							}
 							correctness = angleCorrectness;
 						}
+
+						if (correctness < threashold)
+						{
+							correctFrames++;
+						}
+						else
+						{
+							incorrectFrames++;
+						}
+					}
+					else
+					{
+						incorrectFrames += 1;
 					}
 				}
 				else
 				{
+					passFrames += 1;
 					analysisPointer++;
 				}
 			}
@@ -308,30 +353,36 @@ bool NuitrackGL::update(bool &userInFrame)
 				{
 					if (correctness == 0.0f)
 					{
+						greenFrames++;
 						renderLines(_lines, 6, 16, 0.0f, 1.0f, 0.0f, showJoints);
 					}
 					else
 					{
 						if (correctness < 40.0f)
 						{
+							greenFrames++;
 							renderLines(_lines, 6, 16, 0.0f, 1.0f, 0.0f, showJoints);
 						}
 						else if (correctness >= 40.0f && correctness < 47.0f)
 						{
+							yellowFrames++;
 							renderLines(_lines, 6, 16, 1.0f, 1.0f, 0.0f, showJoints);
 						}
 						else if (correctness >= 47.0f && correctness < 53.0f)
 						{
+							orangeFrames++;
 							renderLines(_lines, 6, 16, 1.0f, 0.5f, 0.0f, showJoints);
 						}
 						else if (correctness >= 53.0f)
 						{
+							redFrames++;
 							renderLines(_lines, 6, 16, 1.0f, 0.0f, 0.0f, showJoints);
 						}
 					}
 				}
 				else
 				{
+					redFrames++;
 					renderLines(_lines, 6, 16, 1.0f, 0.0f, 0.0f, showJoints);
 				}
 			}
@@ -436,7 +487,18 @@ void NuitrackGL::analyzeLoadedData(bool &complete, std::string &analysis)
 		analysisPointer = 0;
 		loadedBufferAnalysis.store(true);
 		analysisComplete = &complete;
+		analysisRef = &analysis;
 		int type = readJointDataBuffer.at(0).requiredJoints;
+
+		incorrectFrames = 0;
+		checkingFrames = 0;
+		correctFrames = 0;
+		passFrames = 0;
+		startTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+		redFrames = 0;
+		yellowFrames = 0;
+		orangeFrames = 0;
+		greenFrames = 0;
 
 		if (type == 0)
 		{

@@ -120,8 +120,19 @@ private:
 	float _width, _height;
 	// GL data
 
+	int redFrames = 0;
+	int greenFrames = 0;
+	int orangeFrames = 0;
+	int yellowFrames = 0;
+	int incorrectFrames = 0;
+	int checkingFrames = 0;
+	int correctFrames = 0;
+	int passFrames = 0;
+	time_t startTime = 0;
+
 	time_t recordTill = 0;
 	std::string* storePath = 0;
+	std::string* analysisRef = 0;
 
 	bool *recordingComplete = 0;
 	bool *recordingReplayComplete = 0;
