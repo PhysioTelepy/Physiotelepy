@@ -14,6 +14,7 @@
 #include <ios>
 #include "sqlite3/sqlite3.h"
 #include "DBApi.h"
+#include <chrono>
 
 #define GetCurrentDir _getcwd
 #define MENU_LENGTH 500

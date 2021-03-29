@@ -6,6 +6,7 @@
 #include <string>
 #include <ctime>
 #include <chrono>
+#include <fstream>
 
 
 typedef enum
@@ -190,7 +191,6 @@ private:
 	bool isValidJoint(const tdv::nuitrack::Joint& j1);
 
 	void initTexture(int width, int height);
-	
 };
 
 #endif /* NUITRACKGLSAMPLE_H_ */

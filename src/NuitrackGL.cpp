@@ -10,6 +10,7 @@
 #include <fstream>
 #include "UserInteraction.h"
 #include "DiskHelper.h"
+#include <chrono>
 
 NuitrackGL::NuitrackGL() :
 	_textureID(0),
@@ -219,8 +220,8 @@ bool NuitrackGL::update(bool &userInFrame)
 
 		hasAllJoints = false;
 		float correctness = 0.0f;
-
-		float threashold = CORRECTNESS_THRESHOLD_UPPER;
+		float threshold = 0.0f;
+		int samplingRate = 30;
 
 		tdv::nuitrack::Nuitrack::waitUpdate(_skeletonTracker);
 		if (isReplay)
@@ -238,7 +239,7 @@ bool NuitrackGL::update(bool &userInFrame)
 			}
 			else if (loadedBufferAnalysis.load())
 			{
-				if (analysisPointer % 30 == 0)
+				if (analysisPointer % samplingRate == 0)
 				{
 					// Assume recording has all the required joints.
 					// Check if user joints has all the required joints
@@ -248,6 +249,7 @@ bool NuitrackGL::update(bool &userInFrame)
 					if (hasAllJoints) {
 						if (exerciseType == UPPER)
 						{
+							threshold = CORRECTNESS_THRESHOLD_UPPER;
 							float angleCorrectness = 0.0f;
 							for (int i = 7; i < 17; i++)
 							{
@@ -264,6 +266,7 @@ bool NuitrackGL::update(bool &userInFrame)
 						}
 						else if (exerciseType == LOWER)
 						{
+							threshold = CORRECTNESS_THRESHOLD_LOWER;
 							float angleCorrectness = 0;
 							for (int i = 0; i < 7; i++)
 							{
@@ -279,6 +282,7 @@ bool NuitrackGL::update(bool &userInFrame)
 						}
 						else if (exerciseType == FULL)
 						{
+							threshold = CORRECTNESS_THRESHOLD_FULL;
 							float angleCorrectness = 0;
 							for (int i = 0; i < 17; i++)
 							{
@@ -293,7 +297,7 @@ bool NuitrackGL::update(bool &userInFrame)
 							correctness = angleCorrectness;
 						}
 
-						if (correctness < threashold)
+						if (correctness < threshold)
 						{
 							correctFrames++;
 						}
@@ -358,22 +362,22 @@ bool NuitrackGL::update(bool &userInFrame)
 					}
 					else
 					{
-						if (correctness < 40.0f)
+						if (correctness < threshold)
 						{
 							greenFrames++;
 							renderLines(_lines, 6, 16, 0.0f, 1.0f, 0.0f, showJoints);
 						}
-						else if (correctness >= 40.0f && correctness < 47.0f)
+						else if (correctness >= 40.0f && correctness < 1.175f * threshold)
 						{
 							yellowFrames++;
 							renderLines(_lines, 6, 16, 1.0f, 1.0f, 0.0f, showJoints);
 						}
-						else if (correctness >= 47.0f && correctness < 53.0f)
+						else if (correctness >= 1.175f * threshold && correctness < 1.325f * threshold)
 						{
 							orangeFrames++;
 							renderLines(_lines, 6, 16, 1.0f, 0.5f, 0.0f, showJoints);
 						}
-						else if (correctness >= 53.0f)
+						else if (correctness >= 1.325f * threshold)
 						{
 							redFrames++;
 							renderLines(_lines, 6, 16, 1.0f, 0.0f, 0.0f, showJoints);
@@ -395,7 +399,7 @@ bool NuitrackGL::update(bool &userInFrame)
 		{
 			renderLines(_lines, 6, 16, 1.0f, 1.0f, 1.0f, showJoints);
 		}
-		
+
 		std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 
 		if (record.load() && now > recordTill)
